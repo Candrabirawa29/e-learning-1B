@@ -8,7 +8,6 @@ export const dynamic = "force-dynamic";
 
 export default async function PublicMaterialsPage() {
   const session = await getCurrentSession();
-
   let materials: MaterialItem[] = [];
   let courses: { id: string; name: string }[] = [];
 

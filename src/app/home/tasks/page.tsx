@@ -15,10 +15,11 @@ export default async function HomeTasksPage({
 }: {
   searchParams: Promise<{ view?: string }>;
 }) {
-  const session = await requireUser();
-  const { view = "table" } = await searchParams;
-
-  const class1B = await prisma.class.findUnique({ where: { code: "1-B" } });
+  const [{ view = "table" }, session, class1B] = await Promise.all([
+    searchParams,
+    requireUser(),
+    prisma.class.findUnique({ where: { code: "1-B" } }),
+  ]);
   if (!class1B) return null;
 
   const [tasks, courses, members] = await Promise.all([

@@ -8,11 +8,12 @@ import { LayoutList, Columns } from "lucide-react";
 export const dynamic = "force-dynamic";
 
 export default async function MyTasksPage() {
-  const session = await requireUser();
-  const profileId = session.profile!.id;
-
-  const class1B = await prisma.class.findUnique({ where: { code: "1-B" } });
+  const [session, class1B] = await Promise.all([
+    requireUser(),
+    prisma.class.findUnique({ where: { code: "1-B" } }),
+  ]);
   if (!class1B) return null;
+  const profileId = session.profile!.id;
 
   // Filter tugas yang ditujukan ke ALL atau secara spesifik ditugaskan ke profileId
   const [tasks, courses] = await Promise.all([

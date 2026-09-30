@@ -6,9 +6,10 @@ import { CreateTaskDialog } from "@/components/tasks/CreateTaskDialog";
 export const dynamic = "force-dynamic";
 
 export default async function ManageTasksPage() {
-  const session = await requirePJOrAdmin();
-
-  const class1B = await prisma.class.findUnique({ where: { code: "1-B" } });
+  const [session, class1B] = await Promise.all([
+    requirePJOrAdmin(),
+    prisma.class.findUnique({ where: { code: "1-B" } }),
+  ]);
   if (!class1B) return null;
 
   const [tasks, courses, members] = await Promise.all([

@@ -9,7 +9,6 @@ export const dynamic = "force-dynamic";
 
 export default async function PublicTasksPage() {
   const session = await getCurrentSession();
-
   let tasks: TaskDetailData[] = [];
   let courses: { id: string; name: string }[] = [];
 

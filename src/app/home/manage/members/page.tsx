@@ -6,9 +6,10 @@ import { Badge } from "@/components/ui/badge";
 export const dynamic = "force-dynamic";
 
 export default async function ManageMembersPage() {
-  const session = await requireAdmin();
-
-  const class1B = await prisma.class.findUnique({ where: { code: "1-B" } });
+  const [session, class1B] = await Promise.all([
+    requireAdmin(),
+    prisma.class.findUnique({ where: { code: "1-B" } }),
+  ]);
   if (!class1B) return null;
 
   const rawMemberships = await prisma.classMembership.findMany({

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { Role } from "@prisma/client";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { cache } from "react";
 
 export type EffectiveRole = "GUEST" | "MEMBER" | "PJ" | "ADMIN";
 
@@ -32,7 +33,7 @@ export interface CurrentUserSession {
 
 export const VIEW_AS_COOKIE = "class1b_view_as";
 
-export async function getCurrentSession(): Promise<CurrentUserSession> {
+export const getCurrentSession = cache(async (): Promise<CurrentUserSession> => {
   const supabase = await createClient();
   const {
     data: { user },
@@ -141,9 +142,9 @@ export async function getCurrentSession(): Promise<CurrentUserSession> {
     isViewAs,
     viewAsRole,
   };
-}
+});
 
-export async function requireUser(): Promise<CurrentUserSession> {
+export const requireUser = cache(async (): Promise<CurrentUserSession> => {
   const session = await getCurrentSession();
   if (!session.user || !session.profile) {
     redirect("/login");
@@ -154,23 +155,23 @@ export async function requireUser(): Promise<CurrentUserSession> {
   }
 
   return session;
-}
+});
 
-export async function requireAdmin(): Promise<CurrentUserSession> {
+export const requireAdmin = cache(async (): Promise<CurrentUserSession> => {
   const session = await requireUser();
   if (session.realRole !== Role.ADMIN) {
     throw new Error("Akses ditolak: Anda harus memiliki hak akses Admin.");
   }
   return session;
-}
+});
 
-export async function requirePJOrAdmin(): Promise<CurrentUserSession> {
+export const requirePJOrAdmin = cache(async (): Promise<CurrentUserSession> => {
   const session = await requireUser();
   if (session.realRole !== Role.ADMIN && session.realRole !== Role.PJ) {
     throw new Error("Akses ditolak: Anda harus memiliki hak akses PJ atau Admin.");
   }
   return session;
-}
+});
 
 export function assertCanMutate(session: CurrentUserSession) {
   if (session.isViewAs) {

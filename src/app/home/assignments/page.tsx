@@ -7,9 +7,10 @@ import { CreateAssignmentDialog } from "@/components/assignments/CreateAssignmen
 export const dynamic = "force-dynamic";
 
 export default async function HomeAssignmentsPage() {
-  const session = await requireUser();
-
-  const class1B = await prisma.class.findUnique({ where: { code: "1-B" } });
+  const [session, class1B] = await Promise.all([
+    requireUser(),
+    prisma.class.findUnique({ where: { code: "1-B" } }),
+  ]);
   if (!class1B) return null;
 
   const [assignments, courses] = await Promise.all([
