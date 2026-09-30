@@ -2,15 +2,16 @@
   "name": "e-learning-1b",
   "version": "0.1.0",
   "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "lint": "eslint",
-    "prisma:generate": "prisma generate",
-    "prisma:seed": "tsx prisma/seed.ts",
-    "db:migrate": "prisma migrate deploy",
-    "db:seed": "tsx prisma/seed.ts"
-  },
+"scripts": {
+  "dev": "next dev",
+  "build": "prisma generate && next build",
+  "postinstall": "prisma generate",
+  "lint": "eslint",
+  "prisma:generate": "prisma generate",
+  "prisma:seed": "tsx prisma/seed.ts",
+  "db:migrate": "prisma migrate deploy",
+  "db:seed": "tsx prisma/seed.ts"
+},
   "dependencies": {
     "@base-ui/react": "^1.8.0",
     "@prisma/client": "^6.19.3",
