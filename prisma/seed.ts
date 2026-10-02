@@ -241,25 +241,25 @@ async function main() {
       courseId: createdCourses[0].id,
       title: "Logika Proposisi & Tabel Kebenaran",
       description: "Konsep pernyataan, tabel kebenaran, tautologi, kontradiksi, dan ekivalensi logika.",
-      orderIndex: 1,
+      order: 1,
     },
     {
       courseId: createdCourses[0].id,
       title: "Teori Himpunan & Diagram Venn",
       description: "Operasi gabungan, irisan, komplemen, dan hukum-hukum aljabar himpunan.",
-      orderIndex: 2,
+      order: 2,
     },
     {
       courseId: createdCourses[1].id,
       title: "Komponen React & App Router Next.js",
       description: "Server Component vs Client Component, arsitektur layout, dan dynamic routing.",
-      orderIndex: 1,
+      order: 1,
     },
     {
       courseId: createdCourses[1].id,
       title: "Integrasi Database PostgreSQL & Prisma ORM",
       description: "Pemodelan schema data, relasi, migrasi, dan query type-safe di server-side.",
-      orderIndex: 2,
+      order: 2,
     },
   ];
 
@@ -271,14 +271,14 @@ async function main() {
       update: {
         title: t.title,
         description: t.description,
-        orderIndex: t.orderIndex,
+        order: t.order,
       },
       create: {
         id: `seed-topic-${i + 1}`,
         courseId: t.courseId,
         title: t.title,
         description: t.description,
-        orderIndex: t.orderIndex,
+        order: t.order,
       },
     });
     createdTopics.push(topic);
@@ -444,30 +444,6 @@ async function main() {
   }
   console.log("✓ Sample tasks (ALL dan SPECIFIC) telah dibuat.");
 
-  // 10. Sample Assignments
-  const in7Days = new Date();
-  in7Days.setDate(in7Days.getDate() + 7);
-
-  await prisma.assignment.upsert({
-    where: { id: "seed-assignment-1" },
-    update: {
-      title: "Tugas Praktikum 1: Desain Basis Data Relasional",
-      description: "Susun Entity Relationship Diagram (ERD) dan skema relasional tabel dalam format PDF. Sertakan penjelasan kardinalitas relasi.",
-      deadline: in7Days,
-      allowSubmissions: true,
-    },
-    create: {
-      id: "seed-assignment-1",
-      classId: class1B.id,
-      courseId: createdCourses[1].id,
-      title: "Tugas Praktikum 1: Desain Basis Data Relasional",
-      description: "Susun Entity Relationship Diagram (ERD) dan skema relasional tabel dalam format PDF. Sertakan penjelasan kardinalitas relasi.",
-      deadline: in7Days,
-      allowSubmissions: true,
-      createdById: adminProfile.id,
-    },
-  });
-  console.log("✓ Sample assignment telah dibuat.");
 
   // 11. Sample Announcements
   await prisma.announcement.upsert({

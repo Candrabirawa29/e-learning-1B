@@ -94,3 +94,30 @@ export function formatRelativeDeadline(deadlineInput: Date | string | null | und
 
   return { text: `${diffDays} hari lagi`, isOverdue: false, isUrgent: false };
 }
+
+export function minutesToTimeString(minute: number): string {
+  const h = Math.floor(minute / 60);
+  const m = minute % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+export function timeStringToMinutes(timeStr: string): number {
+  if (!timeStr || !timeStr.includes(":")) return 0;
+  const [h, m] = timeStr.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+export const DAYS_OF_WEEK_INDO: Record<number, string> = {
+  1: "Senin",
+  2: "Selasa",
+  3: "Rabu",
+  4: "Kamis",
+  5: "Jumat",
+  6: "Sabtu",
+  7: "Minggu",
+};
+
+export function dayOfWeekToIndo(day: number): string {
+  return DAYS_OF_WEEK_INDO[day] || "Tidak diketahui";
+}
+

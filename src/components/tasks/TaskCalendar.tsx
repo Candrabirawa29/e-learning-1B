@@ -6,14 +6,16 @@ import { formatDateIndo, formatRelativeDeadline } from "@/lib/date";
 import { TaskDetailData, TaskDetailModal } from "./TaskDetailModal";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Calendar as CalendarIcon, Clock, CheckCircle2 } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, CheckCircle2, Send } from "lucide-react";
 
 interface TaskCalendarProps {
   tasks: TaskDetailData[];
   session: CurrentUserSession;
+  courses?: { id: string; name: string; code?: string | null }[];
+  members?: { id: string; name: string | null; email: string }[];
 }
 
-export function TaskCalendar({ tasks, session }: TaskCalendarProps) {
+export function TaskCalendar({ tasks, session, courses = [], members = [] }: TaskCalendarProps) {
   const [selectedTask, setSelectedTask] = React.useState<TaskDetailData | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
 
@@ -84,16 +86,31 @@ export function TaskCalendar({ tasks, session }: TaskCalendarProps) {
                     >
                       <CardContent className="p-3 space-y-2 text-xs">
                         <div className="flex items-center justify-between gap-2">
-                          {task.course ? (
-                            <Badge variant="secondary" className="text-[10px] font-medium py-0 h-4">
-                              {task.course.name}
+                          <div className="flex items-center gap-1.5">
+                            {task.course ? (
+                              <Badge variant="secondary" className="text-[10px] font-medium py-0 h-4">
+                                {task.course.name}
+                              </Badge>
+                            ) : (
+                              <span className="text-[11px] text-muted-foreground">Umum</span>
+                            )}
+                            <Badge variant="outline" className="text-[10px] uppercase font-semibold">
+                              {task.priority}
                             </Badge>
-                          ) : (
-                            <span className="text-[11px] text-muted-foreground">Umum</span>
+                          </div>
+
+                          {task.submissionUrl && (
+                            <a
+                              href={task.submissionUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary bg-primary/10 hover:bg-primary/20 px-1.5 py-0.5 rounded transition-colors"
+                            >
+                              <Send className="h-2.5 w-2.5" />
+                              Kumpulkan
+                            </a>
                           )}
-                          <Badge variant="outline" className="text-[10px] uppercase font-semibold">
-                            {task.priority}
-                          </Badge>
                         </div>
 
                         <div className="font-semibold text-xs leading-snug line-clamp-2">
@@ -137,7 +154,21 @@ export function TaskCalendar({ tasks, session }: TaskCalendarProps) {
                   className="cursor-pointer hover:shadow-sm transition-all bg-card"
                 >
                   <CardContent className="p-3 space-y-1.5 text-xs">
-                    <div className="font-medium text-xs line-clamp-1">{task.title}</div>
+                    <div className="flex items-center justify-between gap-1">
+                      <div className="font-medium text-xs line-clamp-1">{task.title}</div>
+                      {task.submissionUrl && (
+                        <a
+                          href={task.submissionUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary bg-primary/10 hover:bg-primary/20 px-1.5 py-0.5 rounded shrink-0"
+                        >
+                          <Send className="h-2.5 w-2.5" />
+                          Kumpulkan
+                        </a>
+                      )}
+                    </div>
                     <div className="text-[11px] text-muted-foreground">
                       {task.course ? task.course.name : "Umum"}
                     </div>
@@ -154,6 +185,8 @@ export function TaskCalendar({ tasks, session }: TaskCalendarProps) {
         open={detailOpen}
         onOpenChange={setDetailOpen}
         session={session}
+        courses={courses}
+        members={members}
       />
     </div>
   );

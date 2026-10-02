@@ -7,9 +7,7 @@ import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   CheckSquare,
-  ListTodo,
   BookOpen,
-  FileCheck2,
   Megaphone,
   User,
   Users,
@@ -38,10 +36,8 @@ export function SidebarNav({ session, isMobile = false }: SidebarNavProps) {
 
   const memberGeneralLinks = [
     { href: "/home", label: "Dashboard", icon: LayoutDashboard },
-    { href: "/home/tasks", label: "Semua Tugas", icon: CheckSquare },
-    { href: "/home/my-tasks", label: "Tugas Saya", icon: ListTodo },
+    { href: "/home/tasks", label: "Tugas Kelas", icon: CheckSquare },
     { href: "/home/materials", label: "Mata Kuliah & Materi", icon: BookOpen },
-    { href: "/home/assignments", label: "Penugasan & Praktikum", icon: FileCheck2 },
     { href: "/home/announcements", label: "Pengumuman Kelas", icon: Megaphone },
     { href: "/home/profile", label: "Profil & Akun", icon: User },
   ];
@@ -49,7 +45,6 @@ export function SidebarNav({ session, isMobile = false }: SidebarNavProps) {
   const pjManagementLinks = [
     { href: "/home/manage/tasks", label: "Kelola Tugas", icon: CheckSquare },
     { href: "/home/manage/materials", label: "Kelola Materi", icon: BookOpen },
-    { href: "/home/manage/assignments", label: "Kelola Penugasan", icon: FileCheck2 },
     { href: "/home/manage/announcements", label: "Kelola Pengumuman", icon: Megaphone },
   ];
 

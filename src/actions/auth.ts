@@ -104,10 +104,18 @@ export async function changePasswordAction(
     };
   }
 
-  // Update status mustChangePassword menjadi false di profil database
+  // Update status mustChangePassword menjadi false di profil database, dan set activatedAt jika belum ada
+  const currentProfile = await prisma.profile.findUnique({
+    where: { id: session.profile.id },
+    select: { activatedAt: true },
+  });
+
   await prisma.profile.update({
     where: { id: session.profile.id },
-    data: { mustChangePassword: false },
+    data: {
+      mustChangePassword: false,
+      ...(!currentProfile?.activatedAt ? { activatedAt: new Date() } : {}),
+    },
   });
 
   await logActivity({

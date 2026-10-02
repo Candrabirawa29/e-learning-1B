@@ -6,6 +6,8 @@ import { formatDateIndo, formatRelativeDeadline } from "@/lib/date";
 import { TaskDetailData, TaskDetailModal } from "./TaskDetailModal";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -15,25 +17,54 @@ import {
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TaskPriority, TaskStatus, TaskTargetType } from "@prisma/client";
-import { Search } from "lucide-react";
+import { Search, RotateCcw, Send } from "lucide-react";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 
 interface TaskListProps {
   tasks: TaskDetailData[];
   session: CurrentUserSession;
-  courses: { id: string; name: string }[];
+  courses: { id: string; name: string; code?: string | null }[];
+  members?: { id: string; name: string | null; email: string }[];
 }
 
-export function TaskList({ tasks, session, courses }: TaskListProps) {
-  const [search, setSearch] = React.useState("");
-  const [selectedCourse, setSelectedCourse] = React.useState<string>("all");
-  const [selectedPriority, setSelectedPriority] = React.useState<string>("all");
-  const [selectedStatus, setSelectedStatus] = React.useState<string>("all");
+export function TaskList({ tasks, session, courses, members = [] }: TaskListProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // Ambil state filter dari URL searchParams
+  const search = searchParams.get("q") || "";
+  const selectedCourse = searchParams.get("course") || "all";
+  const selectedPriority = searchParams.get("priority") || "all";
+  const selectedStatus = searchParams.get("status") || "all";
+  const selectedSort = searchParams.get("sort") || "deadline_asc";
 
   const [selectedTask, setSelectedTask] = React.useState<TaskDetailData | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
 
-  const filteredTasks = React.useMemo(() => {
-    return tasks.filter((t) => {
+  // Helper untuk update query URL
+  const updateQuery = (key: string, value: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value && value !== "all") {
+      params.set(key, value);
+    } else {
+      params.delete(key);
+    }
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  };
+
+  const handleResetFilters = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("q");
+    params.delete("course");
+    params.delete("priority");
+    params.delete("status");
+    params.delete("sort");
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  };
+
+  const filteredAndSortedTasks = React.useMemo(() => {
+    const result = tasks.filter((t) => {
       if (search.trim()) {
         const query = search.toLowerCase();
         const matchTitle = t.title.toLowerCase().includes(query);
@@ -42,10 +73,53 @@ export function TaskList({ tasks, session, courses }: TaskListProps) {
       }
       if (selectedCourse !== "all" && t.course?.id !== selectedCourse) return false;
       if (selectedPriority !== "all" && t.priority !== selectedPriority) return false;
-      if (selectedStatus !== "all" && t.status !== selectedStatus) return false;
+
+      // Status personal
+      const myProg = session.profile
+        ? t.progresses.find((p) => p.profileId === session.profile?.id)
+        : null;
+      const personalStatus = myProg ? myProg.status : TaskStatus.TODO;
+
+      if (selectedStatus !== "all" && personalStatus !== selectedStatus) return false;
       return true;
     });
-  }, [tasks, search, selectedCourse, selectedPriority, selectedStatus]);
+
+    // Sorting
+    result.sort((a, b) => {
+      if (selectedSort === "deadline_asc") {
+        if (!a.deadline) return 1;
+        if (!b.deadline) return -1;
+        return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+      }
+      if (selectedSort === "deadline_desc") {
+        if (!a.deadline) return 1;
+        if (!b.deadline) return -1;
+        return new Date(b.deadline).getTime() - new Date(a.deadline).getTime();
+      }
+      if (selectedSort === "created_desc") {
+        return b.id.localeCompare(a.id);
+      }
+      if (selectedSort === "priority_desc") {
+        const pOrder: Record<TaskPriority, number> = {
+          URGENT: 4,
+          HIGH: 3,
+          MEDIUM: 2,
+          LOW: 1,
+        };
+        return pOrder[b.priority] - pOrder[a.priority];
+      }
+      return 0;
+    });
+
+    return result;
+  }, [tasks, search, selectedCourse, selectedPriority, selectedStatus, selectedSort, session.profile]);
+
+  const hasActiveFilters =
+    search.trim() !== "" ||
+    selectedCourse !== "all" ||
+    selectedPriority !== "all" ||
+    selectedStatus !== "all" ||
+    selectedSort !== "deadline_asc";
 
   const priorityColor = {
     LOW: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
@@ -63,83 +137,148 @@ export function TaskList({ tasks, session, courses }: TaskListProps) {
 
   return (
     <div className="space-y-4">
-      {/* Filter Bar */}
-      <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between bg-card p-3 border rounded-lg">
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            placeholder="Cari judul tugas atau instruksi..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-8 h-8 text-xs"
-          />
+      {/* Filter Bar with Labels */}
+      <div className="bg-card p-3.5 border rounded-lg space-y-3">
+        <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Cari judul tugas atau instruksi..."
+              value={search}
+              onChange={(e) => updateQuery("q", e.target.value)}
+              className="pl-8 h-8 text-xs"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>
+              Menampilkan <strong>{filteredAndSortedTasks.length}</strong> dari {tasks.length} tugas
+            </span>
+            {hasActiveFilters && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleResetFilters}
+                className="h-7 text-xs text-muted-foreground hover:text-foreground gap-1 px-2"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Reset Filter
+              </Button>
+            )}
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Labeled Filters Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t text-xs">
           {/* Filter Mata Kuliah */}
-          <Select value={selectedCourse} onValueChange={(val) => { if (val) setSelectedCourse(val); }}>
-            <SelectTrigger className="h-8 text-xs w-[150px]">
-              <SelectValue placeholder="Mata Kuliah" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all" className="text-xs">
-                Semua Matkul
-              </SelectItem>
-              {courses.map((c) => (
-                <SelectItem key={c.id} value={c.id} className="text-xs">
-                  {c.name}
+          <div className="space-y-1">
+            <Label className="text-[11px] text-muted-foreground font-medium">Mata Kuliah</Label>
+            <Select
+              value={selectedCourse}
+              onValueChange={(val) => { if (val) updateQuery("course", val); }}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Semua Matkul" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">
+                  Semua Matkul
                 </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {/* Filter Prioritas */}
-          <Select value={selectedPriority} onValueChange={(val) => { if (val) setSelectedPriority(val); }}>
-            <SelectTrigger className="h-8 text-xs w-[120px]">
-              <SelectValue placeholder="Prioritas" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all" className="text-xs">
-                Semua Prioritas
-              </SelectItem>
-              <SelectItem value={TaskPriority.LOW} className="text-xs">
-                Rendah
-              </SelectItem>
-              <SelectItem value={TaskPriority.MEDIUM} className="text-xs">
-                Sedang
-              </SelectItem>
-              <SelectItem value={TaskPriority.HIGH} className="text-xs">
-                Tinggi
-              </SelectItem>
-              <SelectItem value={TaskPriority.URGENT} className="text-xs">
-                Mendesak
-              </SelectItem>
-            </SelectContent>
-          </Select>
+                {courses.map((c) => (
+                  <SelectItem key={c.id} value={c.id} className="text-xs">
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
           {/* Filter Status */}
-          <Select value={selectedStatus} onValueChange={(val) => { if (val) setSelectedStatus(val); }}>
-            <SelectTrigger className="h-8 text-xs w-[120px]">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all" className="text-xs">
-                Semua Status
-              </SelectItem>
-              <SelectItem value={TaskStatus.TODO} className="text-xs">
-                TODO
-              </SelectItem>
-              <SelectItem value={TaskStatus.IN_PROGRESS} className="text-xs">
-                IN PROGRESS
-              </SelectItem>
-              <SelectItem value={TaskStatus.REVIEW} className="text-xs">
-                REVIEW
-              </SelectItem>
-              <SelectItem value={TaskStatus.DONE} className="text-xs">
-                DONE
-              </SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="space-y-1">
+            <Label className="text-[11px] text-muted-foreground font-medium">Status Tugas</Label>
+            <Select
+              value={selectedStatus}
+              onValueChange={(val) => { if (val) updateQuery("status", val); }}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Semua Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">
+                  Semua Status
+                </SelectItem>
+                <SelectItem value={TaskStatus.TODO} className="text-xs">
+                  TODO
+                </SelectItem>
+                <SelectItem value={TaskStatus.IN_PROGRESS} className="text-xs">
+                  IN PROGRESS
+                </SelectItem>
+                <SelectItem value={TaskStatus.REVIEW} className="text-xs">
+                  REVIEW
+                </SelectItem>
+                <SelectItem value={TaskStatus.DONE} className="text-xs">
+                  DONE
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Filter Prioritas */}
+          <div className="space-y-1">
+            <Label className="text-[11px] text-muted-foreground font-medium">Prioritas</Label>
+            <Select
+              value={selectedPriority}
+              onValueChange={(val) => { if (val) updateQuery("priority", val); }}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Semua Prioritas" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">
+                  Semua Prioritas
+                </SelectItem>
+                <SelectItem value={TaskPriority.LOW} className="text-xs">
+                  Rendah
+                </SelectItem>
+                <SelectItem value={TaskPriority.MEDIUM} className="text-xs">
+                  Sedang
+                </SelectItem>
+                <SelectItem value={TaskPriority.HIGH} className="text-xs">
+                  Tinggi
+                </SelectItem>
+                <SelectItem value={TaskPriority.URGENT} className="text-xs">
+                  Mendesak
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Urutkan */}
+          <div className="space-y-1">
+            <Label className="text-[11px] text-muted-foreground font-medium">Urutkan</Label>
+            <Select
+              value={selectedSort}
+              onValueChange={(val) => { if (val) updateQuery("sort", val); }}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Urutkan" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="deadline_asc" className="text-xs">
+                  Tenggat Terdekat
+                </SelectItem>
+                <SelectItem value="deadline_desc" className="text-xs">
+                  Tenggat Terjauh
+                </SelectItem>
+                <SelectItem value="created_desc" className="text-xs">
+                  Terbaru Dibuat
+                </SelectItem>
+                <SelectItem value="priority_desc" className="text-xs">
+                  Prioritas Tertinggi
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
@@ -149,27 +288,26 @@ export function TaskList({ tasks, session, courses }: TaskListProps) {
           <TableHeader>
             <TableRow className="bg-muted/50 text-[11px]">
               <TableHead className="w-[35%]">Tugas & Mata Kuliah</TableHead>
-              <TableHead className="w-[15%]">Prioritas</TableHead>
-              <TableHead className="w-[15%]">Status</TableHead>
-              <TableHead className="w-[20%]">Batas Waktu</TableHead>
-              <TableHead className="w-[15%] text-right">Target</TableHead>
+              <TableHead className="w-[12%]">Prioritas</TableHead>
+              <TableHead className="w-[12%]">Status Saya</TableHead>
+              <TableHead className="w-[21%]">Batas Waktu</TableHead>
+              <TableHead className="w-[20%] text-right">Pengumpulan & Target</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredTasks.length === 0 ? (
+            {filteredAndSortedTasks.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} className="h-32 text-center text-xs text-muted-foreground">
                   Belum ada tugas yang cocok dengan filter atau pencarian.
                 </TableCell>
               </TableRow>
             ) : (
-              filteredTasks.map((task) => {
+              filteredAndSortedTasks.map((task) => {
                 const deadline = formatRelativeDeadline(task.deadline);
-                // Cek progress personal jika login
                 const myProg = session.profile
                   ? task.progresses.find((p) => p.profileId === session.profile?.id)
                   : null;
-                const effectiveStatus = myProg ? myProg.status : task.status;
+                const personalStatus = myProg ? myProg.status : TaskStatus.TODO;
 
                 return (
                   <TableRow
@@ -192,7 +330,7 @@ export function TaskList({ tasks, session, courses }: TaskListProps) {
                         )}
                         {myProg && (
                           <span className="font-semibold text-primary">
-                            • Progress Anda: {myProg.progress}%
+                            • Progress: {myProg.progress}%
                           </span>
                         )}
                       </div>
@@ -211,10 +349,10 @@ export function TaskList({ tasks, session, courses }: TaskListProps) {
                       <Badge
                         variant="outline"
                         className={`text-[10px] uppercase font-medium px-1.5 py-0.5 ${
-                          statusColor[effectiveStatus]
+                          statusColor[personalStatus]
                         }`}
                       >
-                        {effectiveStatus}
+                        {personalStatus}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -238,15 +376,30 @@ export function TaskList({ tasks, session, courses }: TaskListProps) {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      {task.targetType === TaskTargetType.ALL ? (
-                        <Badge variant="secondary" className="text-[10px] font-normal">
-                          Semua Mahasiswa
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-[10px] font-normal border-dashed">
-                          {task.assignments.length} Mahasiswa
-                        </Badge>
-                      )}
+                      <div className="flex items-center justify-end gap-2">
+                        {task.submissionUrl && (
+                          <a
+                            href={task.submissionUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold text-primary bg-primary/10 hover:bg-primary/20 rounded transition-colors"
+                          >
+                            <Send className="h-2.5 w-2.5" />
+                            Kumpulkan
+                          </a>
+                        )}
+
+                        {task.targetType === TaskTargetType.ALL ? (
+                          <Badge variant="secondary" className="text-[10px] font-normal">
+                            Semua Kelas
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] font-normal border-dashed">
+                            {task.assignments.length} Mhs
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
@@ -262,6 +415,8 @@ export function TaskList({ tasks, session, courses }: TaskListProps) {
         open={detailOpen}
         onOpenChange={setDetailOpen}
         session={session}
+        courses={courses}
+        members={members}
       />
     </div>
   );

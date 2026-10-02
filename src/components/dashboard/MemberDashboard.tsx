@@ -1,17 +1,18 @@
+"use client";
+
 import Link from "next/link";
 import { CurrentUserSession } from "@/lib/auth/session";
-import { formatDateIndo, formatDateTimeIndo, formatRelativeDeadline } from "@/lib/date";
+import { formatDateTimeIndo, formatRelativeDeadline } from "@/lib/date";
+import { MyTaskStatusDonut } from "./MyTaskStatusDonut";
+import { DeadlineLoadBarChart } from "./DeadlineLoadBarChart";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import { TaskStatus } from "@prisma/client";
 import {
   ListTodo,
   Clock,
-  ArrowRight,
   BookOpen,
-  FileCheck2,
   CheckCircle2,
   AlertCircle,
   Megaphone,
@@ -34,17 +35,10 @@ export interface MemberTaskItem {
   priority: string;
   deadline: Date | string | null;
   targetType: string;
+  submissionUrl?: string | null;
   course: { name: string } | null;
   assignments: MemberTaskAssignment[];
   progresses: MemberTaskProgress[];
-}
-
-export interface MemberAssignmentItem {
-  id: string;
-  title: string;
-  deadline: Date | string;
-  course: { name: string };
-  submissions: Array<{ profileId: string }>;
 }
 
 export interface MemberMaterialItem {
@@ -64,17 +58,17 @@ export interface MemberAnnouncementItem {
 interface MemberDashboardProps {
   session: CurrentUserSession;
   tasks: MemberTaskItem[];
-  assignments: MemberAssignmentItem[];
   materials: MemberMaterialItem[];
   announcements: MemberAnnouncementItem[];
+  deadlineWeeksData: { week: string; label: string; count: number }[];
 }
 
 export function MemberDashboard({
   session,
   tasks,
-  assignments,
   materials,
   announcements,
+  deadlineWeeksData,
 }: MemberDashboardProps) {
   const profileId = session.profile?.id;
 
@@ -84,31 +78,30 @@ export function MemberDashboard({
     return t.assignments.some((a: MemberTaskAssignment) => a.profileId === profileId);
   });
 
-  // Hitung progress
-  const doneTasks = myTasks.filter((t) => {
-    const prog = t.progresses.find((p: MemberTaskProgress) => p.profileId === profileId);
-    return prog ? prog.status === TaskStatus.DONE : t.status === TaskStatus.DONE;
-  });
+  // Hitung status personal (no row = TODO)
+  let todoCount = 0;
+  let inProgressCount = 0;
+  let reviewCount = 0;
+  let doneCount = 0;
 
-  const inProgressTasks = myTasks.filter((t) => {
-    const prog = t.progresses.find((p: MemberTaskProgress) => p.profileId === profileId);
-    return prog ? prog.status === TaskStatus.IN_PROGRESS : t.status === TaskStatus.IN_PROGRESS;
-  });
-
-  const todoTasks = myTasks.filter((t) => {
-    const prog = t.progresses.find((p: MemberTaskProgress) => p.profileId === profileId);
-    return prog ? prog.status === TaskStatus.TODO : t.status === TaskStatus.TODO;
-  });
+  for (const t of myTasks) {
+    const prog = t.progresses.find((p) => p.profileId === profileId);
+    const st = prog ? prog.status : TaskStatus.TODO;
+    if (st === TaskStatus.DONE) doneCount++;
+    else if (st === TaskStatus.IN_PROGRESS) inProgressCount++;
+    else if (st === TaskStatus.REVIEW) reviewCount++;
+    else todoCount++;
+  }
 
   const completionRate =
-    myTasks.length > 0 ? Math.round((doneTasks.length / myTasks.length) * 100) : 0;
+    myTasks.length > 0 ? Math.round((doneCount / myTasks.length) * 100) : 0;
 
   // Due Soon & Overdue Tasks
   const dueSoonTasks = myTasks
     .filter((t) => {
       if (!t.deadline) return false;
-      const prog = t.progresses.find((p: MemberTaskProgress) => p.profileId === profileId);
-      const isDone = prog ? prog.status === TaskStatus.DONE : t.status === TaskStatus.DONE;
+      const prog = t.progresses.find((p) => p.profileId === profileId);
+      const isDone = prog ? prog.status === TaskStatus.DONE : false;
       if (isDone) return false;
       const info = formatRelativeDeadline(t.deadline);
       return !info.isOverdue && info.isUrgent;
@@ -118,8 +111,8 @@ export function MemberDashboard({
   const overdueTasks = myTasks
     .filter((t) => {
       if (!t.deadline) return false;
-      const prog = t.progresses.find((p: MemberTaskProgress) => p.profileId === profileId);
-      const isDone = prog ? prog.status === TaskStatus.DONE : t.status === TaskStatus.DONE;
+      const prog = t.progresses.find((p) => p.profileId === profileId);
+      const isDone = prog ? prog.status === TaskStatus.DONE : false;
       if (isDone) return false;
       const info = formatRelativeDeadline(t.deadline);
       return info.isOverdue;
@@ -129,7 +122,7 @@ export function MemberDashboard({
   return (
     <div className="space-y-6">
       {/* Header Welcome Card */}
-      <div className="border rounded-lg p-5 bg-card flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="border rounded-lg p-5 bg-card flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-2xs">
         <div>
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-[10px] font-semibold uppercase">
@@ -146,270 +139,190 @@ export function MemberDashboard({
         </div>
 
         <div className="flex items-center gap-2">
-          <Link href="/home/my-tasks">
+          <Link href="/home/tasks?scope=mine">
             <Button size="sm" className="h-8 text-xs font-medium gap-1.5">
               <ListTodo className="h-3.5 w-3.5" />
               Buka Tugas Saya
             </Button>
           </Link>
           <Link href="/home/materials">
-            <Button variant="outline" size="sm" className="h-8 text-xs font-medium gap-1.5">
+            <Button size="sm" variant="outline" className="h-8 text-xs font-medium gap-1.5">
               <BookOpen className="h-3.5 w-3.5" />
-              Materi Kuliah
+              Katalog Materi
             </Button>
           </Link>
         </div>
       </div>
 
-      {/* Progress Metric Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Card className="bg-card">
-          <CardContent className="p-3.5 space-y-1 text-xs">
-            <span className="text-[11px] text-muted-foreground font-medium">Total Tugas Saya</span>
-            <div className="text-xl font-bold text-foreground">{myTasks.length}</div>
-            <div className="text-[10px] text-muted-foreground">Tugas kelas & individu</div>
-          </CardContent>
+      {/* Top Quick Stats Grid */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Card className="p-3.5 border bg-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground font-medium">Total Tugasku</span>
+            <ListTodo className="h-4 w-4 text-primary" />
+          </div>
+          <div className="text-2xl font-bold text-foreground mt-1.5">{myTasks.length}</div>
+          <div className="text-[11px] text-muted-foreground mt-1">
+            Tugas aktif terdaftar
+          </div>
         </Card>
 
-        <Card className="bg-card">
-          <CardContent className="p-3.5 space-y-1 text-xs">
-            <span className="text-[11px] text-muted-foreground font-medium">Perlu Dikerjakan</span>
-            <div className="text-xl font-bold text-amber-600 dark:text-amber-400">
-              {todoTasks.length + inProgressTasks.length}
-            </div>
-            <div className="text-[10px] text-muted-foreground">
-              {inProgressTasks.length} sedang dikerjakan
-            </div>
-          </CardContent>
+        <Card className="p-3.5 border bg-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground font-medium">Tugas Selesai</span>
+            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+          </div>
+          <div className="text-2xl font-bold text-foreground mt-1.5">{doneCount}</div>
+          <div className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1 font-medium">
+            {completionRate}% terselesaikan
+          </div>
         </Card>
 
-        <Card className="bg-card">
-          <CardContent className="p-3.5 space-y-1 text-xs">
-            <span className="text-[11px] text-muted-foreground font-medium">Tugas Selesai</span>
-            <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
-              {doneTasks.length}
-            </div>
-            <div className="text-[10px] text-muted-foreground">Terselesaikan</div>
-          </CardContent>
+        <Card className="p-3.5 border bg-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground font-medium">Sedang Dikerjakan</span>
+            <Clock className="h-4 w-4 text-blue-500" />
+          </div>
+          <div className="text-2xl font-bold text-foreground mt-1.5">{inProgressCount}</div>
+          <div className="text-[11px] text-muted-foreground mt-1">
+            Dalam proses pengerjaan
+          </div>
         </Card>
 
-        <Card className="bg-card">
-          <CardContent className="p-3.5 space-y-1.5 text-xs">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] text-muted-foreground font-medium">Penyelesaian</span>
-              <span className="font-bold text-xs">{completionRate}%</span>
-            </div>
-            <Progress value={completionRate} className="h-2" />
-            <div className="text-[10px] text-muted-foreground">Tingkat capaian pengerjaan</div>
-          </CardContent>
+        <Card className="p-3.5 border bg-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground font-medium">Materi Kuliah</span>
+            <BookOpen className="h-4 w-4 text-purple-500" />
+          </div>
+          <div className="text-2xl font-bold text-foreground mt-1.5">{materials.length}</div>
+          <div className="text-[11px] text-muted-foreground mt-1">
+            Tersedia untuk dipelajari
+          </div>
         </Card>
       </div>
 
-      {/* Overdue Warning Alert if any */}
-      {overdueTasks.length > 0 && (
-        <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-900 dark:text-red-200 text-xs space-y-2">
-          <div className="flex items-center gap-2 font-semibold">
-            <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0" />
-            <span>Perhatian: Ada {overdueTasks.length} tugas yang telah melewati batas waktu!</span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {overdueTasks.map((task: MemberTaskItem) => (
-              <div key={task.id} className="p-2 bg-background/80 rounded border flex items-center justify-between">
-                <span className="font-medium truncate max-w-[200px]">{task.title}</span>
-                <span className="text-[10px] text-red-600 dark:text-red-400 font-semibold shrink-0">
-                  {formatRelativeDeadline(task.deadline).text}
-                </span>
-              </div>
-            ))}
-          </div>
+      {/* Charts Section: Donut (Status Tugasku) & Bar (Beban Deadline 4 Minggu) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <MyTaskStatusDonut
+          data={{
+            todo: todoCount,
+            inProgress: inProgressCount,
+            review: reviewCount,
+            done: doneCount,
+          }}
+        />
+
+        <DeadlineLoadBarChart data={deadlineWeeksData} />
+      </div>
+
+      {/* Peringatan Deadline Mendekat & Terlambat */}
+      {(overdueTasks.length > 0 || dueSoonTasks.length > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {overdueTasks.length > 0 && (
+            <Card className="border-red-200 dark:border-red-900/50 bg-red-50/30 dark:bg-red-950/10">
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-center gap-2 text-red-600 dark:text-red-400 font-semibold text-xs">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>Perlu Perhatian: Tugas Melewati Batas Waktu</span>
+                </div>
+                <div className="space-y-2">
+                  {overdueTasks.map((t) => (
+                    <div
+                      key={t.id}
+                      className="flex items-center justify-between p-2.5 bg-background border rounded text-xs"
+                    >
+                      <div className="space-y-0.5">
+                        <Link
+                          href="/home/tasks?scope=mine"
+                          className="font-medium hover:underline line-clamp-1"
+                        >
+                          {t.title}
+                        </Link>
+                        <span className="text-[10px] text-muted-foreground">
+                          {t.course?.name || "Umum"}
+                        </span>
+                      </div>
+                      <span className="text-[11px] font-semibold text-red-600 dark:text-red-400 shrink-0">
+                        {formatRelativeDeadline(t.deadline).text}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {dueSoonTasks.length > 0 && (
+            <Card className="border-amber-200 dark:border-amber-900/50 bg-amber-50/30 dark:bg-amber-950/10">
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-semibold text-xs">
+                  <Clock className="h-4 w-4 shrink-0" />
+                  <span>Segera Kumpulkan: Tenggat Waktu &lt; 3 Hari</span>
+                </div>
+                <div className="space-y-2">
+                  {dueSoonTasks.map((t) => (
+                    <div
+                      key={t.id}
+                      className="flex items-center justify-between p-2.5 bg-background border rounded text-xs"
+                    >
+                      <div className="space-y-0.5">
+                        <Link
+                          href="/home/tasks?scope=mine"
+                          className="font-medium hover:underline line-clamp-1"
+                        >
+                          {t.title}
+                        </Link>
+                        <span className="text-[10px] text-muted-foreground">
+                          {t.course?.name || "Umum"}
+                        </span>
+                      </div>
+                      <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 shrink-0">
+                        {formatRelativeDeadline(t.deadline).text}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
-      {/* Main Grid: Due Soon Tasks & Upcoming Assignments */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: Tasks Due Soon */}
-        <div className="lg:col-span-2 space-y-4">
-          <div className="flex items-center justify-between px-1">
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-primary" />
-              <h2 className="font-semibold text-sm">Tugas Mendekati Batas Waktu</h2>
-            </div>
-            <Link href="/home/tasks" className="text-xs text-primary hover:underline flex items-center gap-1">
-              Semua Tugas <ArrowRight className="h-3 w-3" />
-            </Link>
-          </div>
-
-          <div className="border rounded-lg bg-card divide-y">
-            {dueSoonTasks.length === 0 ? (
-              <div className="p-6 text-center text-xs text-muted-foreground">
-                Bagus! Tidak ada tugas mendesak yang mendekati batas waktu dalam 3 hari ke depan.
-              </div>
-            ) : (
-              dueSoonTasks.map((task: MemberTaskItem) => {
-                const deadline = formatRelativeDeadline(task.deadline);
-                return (
-                  <div key={task.id} className="p-3.5 flex items-center justify-between gap-3 text-xs">
-                    <div className="space-y-1 flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-foreground truncate">{task.title}</span>
-                        {task.course && (
-                          <Badge variant="secondary" className="text-[10px] py-0 h-4 shrink-0">
-                            {task.course.name}
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground flex items-center gap-2">
-                        <span>Deadline: {formatDateTimeIndo(task.deadline)}</span>
-                        <span>•</span>
-                        <span className="font-semibold text-amber-600 dark:text-amber-400">
-                          {deadline.text}
-                        </span>
-                      </div>
-                    </div>
-
-                    <Link href={`/home/my-tasks`}>
-                      <Button size="sm" variant="outline" className="h-7 text-xs">
-                        Buka Tugas
-                      </Button>
-                    </Link>
-                  </div>
-                );
-              })
-            )}
-          </div>
-
-          {/* Upcoming Assignments */}
-          <div className="pt-2 space-y-4">
-            <div className="flex items-center justify-between px-1">
+      {/* Pengumuman Terkini */}
+      {announcements.length > 0 && (
+        <Card className="border bg-card">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <FileCheck2 className="h-4 w-4 text-primary" />
-                <h2 className="font-semibold text-sm">Penugasan & Praktikum</h2>
+                <Megaphone className="h-4 w-4 text-primary" />
+                <h3 className="font-semibold text-xs text-foreground">Pengumuman Kelas Terkini</h3>
               </div>
-              <Link href="/home/assignments" className="text-xs text-primary hover:underline flex items-center gap-1">
-                Semua Penugasan <ArrowRight className="h-3 w-3" />
-              </Link>
-            </div>
-
-            <div className="space-y-2.5">
-              {assignments.length === 0 ? (
-                <div className="p-6 text-center border rounded-lg bg-card text-xs text-muted-foreground">
-                  Tidak ada penugasan atau praktikum aktif saat ini.
-                </div>
-              ) : (
-                assignments.slice(0, 3).map((asg: MemberAssignmentItem) => {
-                  const sub = asg.submissions.find((s) => s.profileId === profileId);
-                  const deadline = formatRelativeDeadline(asg.deadline);
-
-                  return (
-                    <Card key={asg.id} className="bg-card">
-                      <CardContent className="p-3.5 flex items-center justify-between gap-3 text-xs">
-                        <div className="space-y-1 flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-xs leading-snug truncate">
-                              {asg.title}
-                            </span>
-                            <Badge variant="secondary" className="text-[10px] py-0 h-4 shrink-0">
-                              {asg.course.name}
-                            </Badge>
-                          </div>
-                          <div className="text-[11px] text-muted-foreground flex items-center gap-2">
-                            <span>Deadline: {formatDateIndo(asg.deadline)}</span>
-                            <span>•</span>
-                            <span className={deadline.isOverdue ? "text-red-500 font-medium" : ""}>
-                              {deadline.text}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="shrink-0">
-                          {sub ? (
-                            <Badge
-                              variant="outline"
-                              className="text-[10px] uppercase font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 gap-1"
-                            >
-                              <CheckCircle2 className="h-3 w-3" />
-                              Terkumpul
-                            </Badge>
-                          ) : (
-                            <Badge
-                              variant="outline"
-                              className="text-[10px] uppercase font-semibold bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-300"
-                            >
-                              Belum Dikumpulkan
-                            </Badge>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column: Announcements & Recent Materials */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between px-1">
-            <div className="flex items-center gap-2">
-              <Megaphone className="h-4 w-4 text-primary" />
-              <h2 className="font-semibold text-sm">Pengumuman Kelas</h2>
-            </div>
-            <Link href="/home/announcements" className="text-xs text-primary hover:underline flex items-center gap-1">
-              Lihat Semua <ArrowRight className="h-3 w-3" />
-            </Link>
-          </div>
-
-          <div className="space-y-2.5">
-            {announcements.length === 0 ? (
-              <div className="p-6 text-center border rounded-lg bg-card text-xs text-muted-foreground">
-                Tidak ada pengumuman terbaru.
-              </div>
-            ) : (
-              announcements.slice(0, 3).map((ann: MemberAnnouncementItem) => (
-                <Card key={ann.id} className="bg-card">
-                  <CardContent className="p-3.5 space-y-1 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-xs truncate max-w-[200px]">{ann.title}</span>
-                      <span className="text-[10px] text-muted-foreground shrink-0">
-                        {formatDateIndo(ann.publishedAt)}
-                      </span>
-                    </div>
-                    <p className="text-muted-foreground line-clamp-2 text-xs leading-relaxed">
-                      {ann.content}
-                    </p>
-                  </CardContent>
-                </Card>
-              ))
-            )}
-          </div>
-
-          {/* Materi Terkini */}
-          <div className="pt-2 space-y-3">
-            <div className="flex items-center justify-between px-1">
-              <div className="flex items-center gap-2">
-                <BookOpen className="h-4 w-4 text-primary" />
-                <h2 className="font-semibold text-sm">Materi Kuliah Baru</h2>
-              </div>
-              <Link href="/home/materials" className="text-xs text-primary hover:underline flex items-center gap-1">
-                Katalog <ArrowRight className="h-3 w-3" />
+              <Link
+                href="/home/announcements"
+                className="text-xs text-primary hover:underline font-medium"
+              >
+                Lihat Semua
               </Link>
             </div>
 
             <div className="space-y-2">
-              {materials.slice(0, 3).map((m: MemberMaterialItem) => (
-                <div key={m.id} className="p-2.5 rounded border bg-card text-xs space-y-0.5">
-                  <div className="font-medium text-xs truncate">{m.title}</div>
-                  <div className="text-[11px] text-muted-foreground flex items-center justify-between">
-                    <span>{m.course.name}</span>
-                    <span className="uppercase text-[10px] font-semibold">{m.materialType}</span>
+              {announcements.slice(0, 2).map((a) => (
+                <div key={a.id} className="p-3 rounded-md bg-muted/30 border text-xs space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-foreground">{a.title}</span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">
+                      {formatDateTimeIndo(a.publishedAt)}
+                    </span>
                   </div>
+                  <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
+                    {a.content}
+                  </p>
                 </div>
               ))}
             </div>
-          </div>
-        </div>
-      </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

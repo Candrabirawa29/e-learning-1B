@@ -1,74 +1,84 @@
 import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth/session";
-import { canUploadMaterial } from "@/lib/auth/rbac";
-import { MaterialList } from "@/components/materials/MaterialList";
-import { UploadMaterialDialog } from "@/components/materials/UploadMaterialDialog";
-import { getStorageFileUrl } from "@/lib/supabase/storage";
+import { getCurrentSession } from "@/lib/auth/session";
+import { WeeklySchedule } from "@/components/courses/WeeklySchedule";
+import { CourseCardGrid } from "@/components/courses/CourseCardGrid";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomeMaterialsPage() {
   const [session, class1B] = await Promise.all([
-    requireUser(),
+    getCurrentSession(),
     prisma.class.findUnique({ where: { code: "1-B" } }),
   ]);
   if (!class1B) return null;
 
-  const [rawMaterials, courses] = await Promise.all([
-    prisma.material.findMany({
+  const [schedules, courses, members] = await Promise.all([
+    prisma.courseSchedule.findMany({
       where: { course: { classId: class1B.id } },
       include: {
-        course: true,
-        topic: true,
-        uploadedBy: true,
+        course: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            lecturer: true,
+          },
+        },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ dayOfWeek: "asc" }, { startMinute: "asc" }],
     }),
     prisma.course.findMany({
       where: { classId: class1B.id },
       include: {
-        topics: { orderBy: { orderIndex: "asc" } },
+        pjs: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
+        _count: {
+          select: {
+            materials: true,
+            tasks: true,
+            topics: true,
+          },
+        },
+      },
+      orderBy: { name: "asc" },
+    }),
+    prisma.profile.findMany({
+      where: {
+        memberships: {
+          some: { classId: class1B.id },
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
       },
       orderBy: { name: "asc" },
     }),
   ]);
 
-  // Siapkan tautan unduhan dari storage jika ada
-  const materialsWithUrls = await Promise.all(
-    rawMaterials.map(async (m) => {
-      let downloadUrl = m.externalUrl || undefined;
-      if (m.storagePath) {
-        try {
-          downloadUrl = await getStorageFileUrl("materials", m.storagePath);
-        } catch (e) {
-          console.error("Gagal mendapatkan storage URL:", e);
-        }
-      }
-      return {
-        ...m,
-        downloadUrl,
-      };
-    })
-  );
-
-  const canUpload = canUploadMaterial(session);
-
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b pb-4">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Mata Kuliah & Materi Pembelajaran</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Katalog terpadu bahan ajar, presentasi, modul praktikum, dan referensi perkuliahan Kelas 1-B.
-          </p>
-        </div>
+    <div className="space-y-8">
+      {/* Top: Weekly Schedule */}
+      <WeeklySchedule
+        schedules={schedules}
+        courses={courses.map((c) => ({ id: c.id, name: c.name }))}
+        session={session}
+      />
 
-        {canUpload && <UploadMaterialDialog courses={courses} />}
-      </div>
-
-      <MaterialList
-        materials={materialsWithUrls}
+      {/* Bottom: Course Cards */}
+      <CourseCardGrid
         courses={courses}
+        members={members}
         session={session}
       />
     </div>

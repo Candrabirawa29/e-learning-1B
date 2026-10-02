@@ -51,7 +51,7 @@ export default async function ManageTasksPage() {
         <CreateTaskDialog courses={courses} members={members} />
       </div>
 
-      <TaskList tasks={tasks} courses={courses} session={session} />
+      <TaskList tasks={tasks} courses={courses} members={members} session={session} />
     </div>
   );
 }

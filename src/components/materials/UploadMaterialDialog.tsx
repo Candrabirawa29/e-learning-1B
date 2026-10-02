@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { createMaterialAction } from "@/actions/materials";
+import { createMaterialAction, getCloudinaryUploadSignatureAction } from "@/actions/materials";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -22,39 +22,92 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { MaterialType, MaterialVisibility } from "@prisma/client";
-import { Upload, Loader2, FileUp } from "lucide-react";
+import { Upload, Loader2, FileUp, Link2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 
 interface CourseTopic {
   id: string;
   name: string;
-  topics: { id: string; title: string }[];
+  topics?: { id: string; title: string }[];
 }
 
 interface UploadMaterialDialogProps {
   courses: CourseTopic[];
+  defaultCourseId?: string;
+  defaultTopicId?: string;
   triggerButton?: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  onSuccess?: () => void;
 }
 
-export function UploadMaterialDialog({ courses, triggerButton }: UploadMaterialDialogProps) {
-  const [open, setOpen] = React.useState(false);
+export function UploadMaterialDialog({
+  courses,
+  defaultCourseId,
+  defaultTopicId,
+  triggerButton,
+  open: controlledOpen,
+  onOpenChange: setControlledOpen,
+  onSuccess,
+}: UploadMaterialDialogProps) {
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = isControlled ? setControlledOpen! : setInternalOpen;
+
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [uploadProgress, setUploadProgress] = React.useState<string>("");
 
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
-  const [courseId, setCourseId] = React.useState<string>(courses[0]?.id || "");
-  const [topicId, setTopicId] = React.useState<string>("none");
+  const [courseId, setCourseId] = React.useState<string>(defaultCourseId || courses[0]?.id || "");
+  const [topicId, setTopicId] = React.useState<string>(defaultTopicId || "none");
+  const [uploadMode, setUploadMode] = React.useState<"file" | "link">("file");
   const [materialType, setMaterialType] = React.useState<MaterialType>(MaterialType.PDF);
   const [externalUrl, setExternalUrl] = React.useState("");
-  const [visibility, setVisibility] = React.useState<MaterialVisibility>(MaterialVisibility.PUBLIC);
+  const visibility = MaterialVisibility.PUBLIC;
   const [file, setFile] = React.useState<File | null>(null);
+
+  React.useEffect(() => {
+    if (defaultCourseId) {
+      setCourseId(defaultCourseId);
+    } else if (courses.length > 0 && !courseId) {
+      setCourseId(courses[0].id);
+    }
+  }, [defaultCourseId, courses, courseId]);
 
   const availableTopics = React.useMemo(() => {
     const selected = courses.find((c) => c.id === courseId);
-    return selected ? selected.topics : [];
+    return selected?.topics || [];
   }, [courses, courseId]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0] || null;
+    if (selectedFile) {
+      // Validasi batas 10MB di sisi klien
+      if (selectedFile.size > 10 * 1024 * 1024) {
+        toast.error("Ukuran file melebihi batas maksimal 10 MB. Silakan kompres atau gunakan tautan eksternal.");
+        e.target.value = "";
+        setFile(null);
+        return;
+      }
+      setFile(selectedFile);
+
+      // Otomatis tentukan materialType berdasarkan ekstensi jika belum dipilih
+      const ext = selectedFile.name.split(".").pop()?.toLowerCase();
+      if (ext === "pdf") setMaterialType(MaterialType.PDF);
+      else if (["doc", "docx"].includes(ext || "")) setMaterialType(MaterialType.DOC);
+      else if (["ppt", "pptx"].includes(ext || "")) setMaterialType(MaterialType.PPT);
+      else setMaterialType(MaterialType.NOTES);
+
+      if (!title) {
+        setTitle(selectedFile.name.replace(/\.[^/.]+$/, ""));
+      }
+    } else {
+      setFile(null);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,231 +120,276 @@ export function UploadMaterialDialog({ courses, triggerButton }: UploadMaterialD
       return;
     }
 
-    if (materialType === MaterialType.LINK && !externalUrl.trim()) {
-      toast.error("Masukkan URL tautan materi.");
+    if (uploadMode === "link" && !externalUrl.trim()) {
+      toast.error("Masukkan tautan URL materi.");
       return;
     }
 
-    if (
-      ([MaterialType.PDF, MaterialType.DOC, MaterialType.PPT] as MaterialType[]).includes(materialType) &&
-      !file &&
-      !externalUrl.trim()
-    ) {
-      toast.error("Harap pilih file dokumen untuk diunggah.");
+    if (uploadMode === "file" && !file) {
+      toast.error("Harap pilih file yang akan diunggah.");
       return;
     }
 
     setIsSubmitting(true);
     try {
-      const formData = new FormData();
-      formData.set("title", title.trim());
-      if (description.trim()) formData.set("description", description.trim());
-      formData.set("courseId", courseId);
-      if (topicId !== "none") formData.set("topicId", topicId);
-      formData.set("materialType", materialType);
-      if (externalUrl.trim()) formData.set("externalUrl", externalUrl.trim());
-      formData.set("visibility", visibility);
-      if (file) formData.set("file", file);
+      if (uploadMode === "file" && file) {
+        setUploadProgress("Meminta otorisasi upload ke Cloudinary...");
+        const sig = await getCloudinaryUploadSignatureAction(courseId);
 
-      await createMaterialAction(formData);
+        setUploadProgress("Mengunggah file langsung ke Cloudinary...");
+        const cldData = new FormData();
+        cldData.append("file", file);
+        cldData.append("api_key", sig.apiKey);
+        cldData.append("timestamp", sig.timestamp.toString());
+        cldData.append("signature", sig.signature);
+        cldData.append("folder", sig.folder);
+
+        const cldRes = await fetch(
+          `https://api.cloudinary.com/v1_1/${sig.cloudName}/auto/upload`,
+          {
+            method: "POST",
+            body: cldData,
+          }
+        );
+
+        if (!cldRes.ok) {
+          const errData = await cldRes.json().catch(() => ({}));
+          throw new Error(errData.error?.message || "Gagal mengunggah file ke Cloudinary.");
+        }
+
+        const cldJson = await cldRes.json();
+
+        setUploadProgress("Menyimpan data materi ke sistem...");
+        await createMaterialAction({
+          title: title.trim(),
+          description: description.trim() || undefined,
+          courseId,
+          topicId: topicId === "none" ? null : topicId,
+          materialType,
+          provider: "CLOUDINARY",
+          fileUrl: cldJson.secure_url,
+          publicId: cldJson.public_id,
+          fileName: file.name,
+          fileSize: file.size,
+          visibility,
+        });
+      } else {
+        setUploadProgress("Menyimpan tautan materi...");
+        await createMaterialAction({
+          title: title.trim(),
+          description: description.trim() || undefined,
+          courseId,
+          topicId: topicId === "none" ? null : topicId,
+          materialType: MaterialType.LINK,
+          provider: "EXTERNAL",
+          externalUrl: externalUrl.trim(),
+          visibility,
+        });
+      }
+
       toast.success("Materi berhasil ditambahkan!");
       setOpen(false);
+      onSuccess?.();
+
       // Reset
       setTitle("");
       setDescription("");
       setFile(null);
       setExternalUrl("");
       setTopicId("none");
+      setUploadProgress("");
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Gagal menambahkan materi");
+      toast.error(err instanceof Error ? err.message : "Terjadi kesalahan saat mengunggah materi.");
     } finally {
       setIsSubmitting(false);
+      setUploadProgress("");
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger
-        render={
-          triggerButton ? (
-            (triggerButton as React.ReactElement)
-          ) : (
-            <Button size="sm" className="h-8 gap-1.5 text-xs font-medium">
-              <Upload className="h-3.5 w-3.5" />
-              Upload Materi
-            </Button>
-          )
-        }
-      />
-      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="text-base font-semibold">Unggah Materi Pembelajaran</DialogTitle>
-          <DialogDescription className="text-xs">
-            Materi yang diunggah akan otomatis dibagikan secara terpusat ke seluruh anggota kelas.
-          </DialogDescription>
-        </DialogHeader>
+      {triggerButton && <DialogTrigger render={triggerButton as React.ReactElement} />}
 
-        <form onSubmit={handleSubmit} className="space-y-3.5 py-2 text-xs">
-          {/* Judul */}
-          <div className="space-y-1.5">
-            <Label htmlFor="mat-title" className="text-xs font-medium">
-              Judul Materi <span className="text-red-500">*</span>
-            </Label>
-            <Input
-              id="mat-title"
-              placeholder="Contoh: Modul Pertemuan 4: Diagram Pohon & Relasi"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="text-xs h-9"
-              required
-            />
-          </div>
+      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold">Unggah Materi Pembelajaran</DialogTitle>
+            <DialogDescription className="text-xs">
+              Unggah file dokumen (PDF, PPT, DOC) ke Cloudinary atau bagikan tautan eksternal (Google Drive / YouTube).
+            </DialogDescription>
+          </DialogHeader>
 
-          {/* Mata Kuliah & Topik */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-3.5 text-xs py-1">
+            {/* Pilihan Metode: File Upload vs Link */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Mata Kuliah</Label>
-              <Select value={courseId} onValueChange={(val) => { if (val) { setCourseId(val); setTopicId("none"); } }}>
-                <SelectTrigger className="text-xs h-9">
-                  <SelectValue placeholder="Pilih Matkul" />
-                </SelectTrigger>
-                <SelectContent>
-                  {courses.map((c) => (
-                    <SelectItem key={c.id} value={c.id} className="text-xs">
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label className="text-xs font-medium">Metode Materi</Label>
+              <div className="grid grid-cols-2 gap-3">
+                <div
+                  onClick={() => setUploadMode("file")}
+                  className={`flex items-center gap-2 p-2.5 border rounded-md cursor-pointer transition-all ${
+                    uploadMode === "file"
+                      ? "border-primary bg-primary/5 text-foreground font-medium"
+                      : "text-muted-foreground hover:bg-muted/40"
+                  }`}
+                >
+                  <FileUp className="h-4 w-4 text-primary" />
+                  <span>File Langsung (Maks 10MB)</span>
+                </div>
+                <div
+                  onClick={() => setUploadMode("link")}
+                  className={`flex items-center gap-2 p-2.5 border rounded-md cursor-pointer transition-all ${
+                    uploadMode === "link"
+                      ? "border-primary bg-primary/5 text-foreground font-medium"
+                      : "text-muted-foreground hover:bg-muted/40"
+                  }`}
+                >
+                  <Link2 className="h-4 w-4 text-primary" />
+                  <span>Tautan Eksternal</span>
+                </div>
+              </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Topik / Bab</Label>
-              <Select value={topicId} onValueChange={(val) => { if (val) setTopicId(val); }}>
-                <SelectTrigger className="text-xs h-9">
-                  <SelectValue placeholder="Pilih Topik" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none" className="text-xs">-- Umum (Tanpa Topik) --</SelectItem>
-                  {availableTopics.map((t) => (
-                    <SelectItem key={t.id} value={t.id} className="text-xs">
-                      {t.title}
+            {/* Mata Kuliah & Sub-topik */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">
+                  Mata Kuliah <span className="text-red-500">*</span>
+                </Label>
+                <Select value={courseId} onValueChange={(val) => { if (val) setCourseId(val); }}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Pilih Mata Kuliah" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {courses.map((c) => (
+                      <SelectItem key={c.id} value={c.id} className="text-xs">
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Sub-Topik / Bab</Label>
+                <Select value={topicId} onValueChange={(val) => { if (val) setTopicId(val); }}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Pilih Sub-Topik (Opsional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none" className="text-xs">
+                      -- Umum (Tanpa Sub-topik) --
                     </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                    {availableTopics.map((t) => (
+                      <SelectItem key={t.id} value={t.id} className="text-xs">
+                        {t.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-          </div>
 
-          {/* Format / Tipe Materi */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">Tipe Materi</Label>
-            <Select value={materialType} onValueChange={(val) => { if (val) setMaterialType(val as MaterialType); }}>
-              <SelectTrigger className="text-xs h-9">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={MaterialType.PDF} className="text-xs">Dokumen PDF (.pdf)</SelectItem>
-                <SelectItem value={MaterialType.DOC} className="text-xs">Dokumen Word (.doc, .docx)</SelectItem>
-                <SelectItem value={MaterialType.PPT} className="text-xs">Presentasi Slide (.ppt, .pptx)</SelectItem>
-                <SelectItem value={MaterialType.LINK} className="text-xs">Tautan Eksternal / Referensi URL</SelectItem>
-                <SelectItem value={MaterialType.NOTES} className="text-xs">Catatan Kuliah / Ringkasan</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* File Upload jika file */}
-          {([MaterialType.PDF, MaterialType.DOC, MaterialType.PPT, MaterialType.NOTES] as MaterialType[]).includes(materialType) && (
-            <div className="space-y-1.5 p-3 border rounded-md bg-muted/20">
-              <Label htmlFor="file-input" className="text-xs font-medium flex items-center gap-1.5">
-                <FileUp className="h-3.5 w-3.5" />
-                Pilih Berkas Dokumen (Maks. 10 MB)
+            {/* Judul Materi */}
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">
+                Judul Materi <span className="text-red-500">*</span>
               </Label>
               <Input
-                id="file-input"
-                type="file"
-                accept=".pdf,.doc,.docx,.ppt,.pptx,.txt"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-                className="text-xs h-9 cursor-pointer file:cursor-pointer"
-              />
-              <p className="text-[10px] text-muted-foreground">
-                Format didukung: PDF, DOC, DOCX, PPT, PPTX, TXT.
-              </p>
-            </div>
-          )}
-
-          {/* URL eksternal */}
-          {(materialType === MaterialType.LINK || !file) && (
-            <div className="space-y-1.5">
-              <Label htmlFor="ext-url" className="text-xs font-medium">
-                Tautan URL Dokumen / Website (Opsional jika file diunggah)
-              </Label>
-              <Input
-                id="ext-url"
-                type="url"
-                placeholder="https://..."
-                value={externalUrl}
-                onChange={(e) => setExternalUrl(e.target.value)}
-                className="text-xs h-9"
+                placeholder="Contoh: Pertemuan 3 - Normalisasi & Functional Dependency"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="h-8 text-xs"
+                required
               />
             </div>
-          )}
 
-          {/* Deskripsi */}
-          <div className="space-y-1.5">
-            <Label htmlFor="mat-desc" className="text-xs font-medium">Keterangan Tambahan</Label>
-            <Textarea
-              id="mat-desc"
-              placeholder="Catatan mengenai materi, nomor slide, atau rangkuman pokok bahasan..."
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-              className="text-xs resize-none"
-            />
+            {/* Upload File atau Input Link */}
+            {uploadMode === "file" ? (
+              <div className="space-y-2">
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium">
+                    Pilih File Dokumen <span className="text-red-500">*</span> (Maksimal 10 MB)
+                  </Label>
+                  <Input
+                    type="file"
+                    onChange={handleFileChange}
+                    accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.zip"
+                    className="h-9 text-xs file:text-xs file:font-medium file:bg-muted file:border-0 file:rounded-sm file:mr-2"
+                    required={uploadMode === "file"}
+                  />
+                </div>
+                {file && (
+                  <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 text-primary" />
+                    File terpilih: <strong>{file.name}</strong> ({(file.size / (1024 * 1024)).toFixed(2)} MB)
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">
+                  URL Tautan Eksternal <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  type="url"
+                  placeholder="https://drive.google.com/... atau https://youtube.com/..."
+                  value={externalUrl}
+                  onChange={(e) => setExternalUrl(e.target.value)}
+                  className="h-8 text-xs"
+                  required={uploadMode === "link"}
+                />
+              </div>
+            )}
+
+            {/* Deskripsi */}
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">Deskripsi / Catatan Tambahan (Opsional)</Label>
+              <Textarea
+                placeholder="Tuliskan catatan penting mengenai materi ini..."
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={2}
+                className="text-xs resize-none"
+              />
+            </div>
+
+            {/* Status Progress Upload */}
+            {isSubmitting && uploadProgress && (
+              <div className="p-2.5 bg-primary/10 border border-primary/20 rounded text-xs flex items-center gap-2 text-primary font-medium">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {uploadProgress}
+              </div>
+            )}
           </div>
 
-          {/* Visibility */}
-          <div className="space-y-2 pt-2 border-t">
-            <Label className="text-xs font-medium">Akses Visibilitas</Label>
-            <RadioGroup
-              value={visibility}
-              onValueChange={(val) => setVisibility(val as MaterialVisibility)}
-              className="flex items-center gap-6"
-            >
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value={MaterialVisibility.PUBLIC} id="vis-public" />
-                <Label htmlFor="vis-public" className="text-xs font-normal cursor-pointer">
-                  Publik (Dapat diakses Guest & Kelas)
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value={MaterialVisibility.AUTHENTICATED} id="vis-auth" />
-                <Label htmlFor="vis-auth" className="text-xs font-normal cursor-pointer">
-                  Internal (Wajib Login)
-                </Label>
-              </div>
-            </RadioGroup>
-          </div>
-
-          <DialogFooter className="pt-3 border-t">
+          <DialogFooter className="pt-2 border-t">
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={() => setOpen(false)}
-              disabled={isSubmitting}
               className="text-xs h-8"
+              disabled={isSubmitting}
             >
               Batal
             </Button>
             <Button
               type="submit"
               size="sm"
+              className="text-xs h-8 gap-1.5 font-medium"
               disabled={isSubmitting}
-              className="text-xs h-8 gap-1.5"
             >
-              {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              {isSubmitting ? "Mengunggah..." : "Simpan & Publikasikan"}
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Mengunggah...
+                </>
+              ) : (
+                <>
+                  <Upload className="h-3.5 w-3.5" />
+                  Unggah Materi
+                </>
+              )}
             </Button>
           </DialogFooter>
         </form>

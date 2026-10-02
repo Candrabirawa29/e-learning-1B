@@ -19,9 +19,10 @@ interface MemberSelectorProps {
   members: MemberOption[];
   selectedIds: string[];
   onChange: (ids: string[]) => void;
+  label?: string;
 }
 
-export function MemberSelector({ members, selectedIds, onChange }: MemberSelectorProps) {
+export function MemberSelector({ members, selectedIds, onChange, label }: MemberSelectorProps) {
   const [open, setOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
 
@@ -55,6 +56,7 @@ export function MemberSelector({ members, selectedIds, onChange }: MemberSelecto
 
   return (
     <div className="space-y-2">
+      {label && <label className="text-xs font-medium text-foreground">{label}</label>}
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
           render={

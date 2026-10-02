@@ -19,6 +19,7 @@ export interface CurrentUserSession {
     avatarUrl: string | null;
     mustChangePassword: boolean;
     isActive: boolean;
+    activatedAt?: Date | null;
   } | null;
   membership: {
     id: string;
@@ -27,6 +28,7 @@ export interface CurrentUserSession {
   } | null;
   realRole: Role | null;
   effectiveRole: EffectiveRole;
+  assignedCourseIds?: string[];
   isViewAs: boolean;
   viewAsRole: EffectiveRole | null;
   isImpersonating?: boolean;
@@ -69,6 +71,11 @@ export const getCurrentSession = cache(async (): Promise<CurrentUserSession> => 
           class: true,
         },
       },
+      coursePJs: {
+        select: {
+          courseId: true,
+        },
+      },
     },
   });
 
@@ -85,6 +92,7 @@ export const getCurrentSession = cache(async (): Promise<CurrentUserSession> => 
         name: user.email.split("@")[0].replace(/[\._]/g, " "),
         mustChangePassword: !isAdmin,
         isActive: true,
+        activatedAt: isAdmin ? new Date() : null,
         memberships: class1B
           ? {
               create: {
@@ -100,12 +108,35 @@ export const getCurrentSession = cache(async (): Promise<CurrentUserSession> => 
             class: true,
           },
         },
+        coursePJs: {
+          select: {
+            courseId: true,
+          },
+        },
+      },
+    });
+  } else if (user.email.toLowerCase() === "damarraditya@gmail.com" && !profile.activatedAt) {
+    profile = await prisma.profile.update({
+      where: { id: profile.id },
+      data: { activatedAt: new Date() },
+      include: {
+        memberships: {
+          include: {
+            class: true,
+          },
+        },
+        coursePJs: {
+          select: {
+            courseId: true,
+          },
+        },
       },
     });
   }
 
   const membership = profile.memberships[0] || null;
   const realRole = membership?.role || Role.MEMBER;
+  const userAssignedCourseIds = profile.coursePJs?.map((cp) => cp.courseId) || [];
 
   // Cek cookie Impersonate & View-As
   const cookieStore = await cookies();
@@ -121,12 +152,18 @@ export const getCurrentSession = cache(async (): Promise<CurrentUserSession> => 
             class: true,
           },
         },
+        coursePJs: {
+          select: {
+            courseId: true,
+          },
+        },
       },
     });
 
     if (impersonatedProfile) {
       const impMembership = impersonatedProfile.memberships[0] || null;
       const impRole = (impMembership?.role as EffectiveRole) || "MEMBER";
+      const impCourseIds = impersonatedProfile.coursePJs?.map((cp) => cp.courseId) || [];
 
       return {
         user: {
@@ -140,6 +177,7 @@ export const getCurrentSession = cache(async (): Promise<CurrentUserSession> => 
           avatarUrl: impersonatedProfile.avatarUrl,
           mustChangePassword: false, // Tidak memblokir admin dengan layar ganti password
           isActive: impersonatedProfile.isActive,
+          activatedAt: impersonatedProfile.activatedAt,
         },
         membership: impMembership
           ? {
@@ -150,6 +188,7 @@ export const getCurrentSession = cache(async (): Promise<CurrentUserSession> => 
           : null,
         realRole: Role.ADMIN,
         effectiveRole: impRole,
+        assignedCourseIds: impCourseIds,
         isViewAs: true,
         viewAsRole: impRole,
         isImpersonating: true,
@@ -191,6 +230,7 @@ export const getCurrentSession = cache(async (): Promise<CurrentUserSession> => 
       avatarUrl: profile.avatarUrl,
       mustChangePassword: profile.mustChangePassword,
       isActive: profile.isActive,
+      activatedAt: profile.activatedAt,
     },
     membership: membership
       ? {
@@ -201,6 +241,7 @@ export const getCurrentSession = cache(async (): Promise<CurrentUserSession> => 
       : null,
     realRole,
     effectiveRole,
+    assignedCourseIds: userAssignedCourseIds,
     isViewAs,
     viewAsRole,
     isImpersonating: false,

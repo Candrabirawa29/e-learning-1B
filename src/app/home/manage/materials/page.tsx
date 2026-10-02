@@ -26,7 +26,7 @@ export default async function ManageMaterialsPage() {
     prisma.course.findMany({
       where: { classId: class1B.id },
       include: {
-        topics: { orderBy: { orderIndex: "asc" } },
+        topics: { orderBy: { order: "asc" } },
       },
       orderBy: { name: "asc" },
     }),

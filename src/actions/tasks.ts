@@ -17,6 +17,7 @@ export async function createTaskAction(data: {
   targetType: TaskTargetType;
   assignees?: string[];
   attachmentUrl?: string;
+  submissionUrl?: string;
 }) {
   const session = await getCurrentSession();
   if (!session.user || !session.profile) {
@@ -24,19 +25,17 @@ export async function createTaskAction(data: {
   }
   assertCanMutate(session);
 
-  if (!canCreateTask(session)) {
-    throw new Error("Akses ditolak: Hanya PJ atau Admin yang dapat membuat tugas.");
+  if (!canCreateTask(session, data.courseId)) {
+    throw new Error("Akses ditolak: Anda tidak memiliki izin untuk membuat tugas pada mata kuliah ini.");
   }
 
   const parsed = createTaskSchema.parse(data);
 
-  // Ambil kelas 1-B
   const class1B = await prisma.class.findUnique({ where: { code: "1-B" } });
   if (!class1B) {
     throw new Error("Kelas 1-B tidak ditemukan di sistem.");
   }
 
-  // Buat task utama
   const task = await prisma.task.create({
     data: {
       classId: class1B.id,
@@ -49,7 +48,7 @@ export async function createTaskAction(data: {
       targetType: parsed.targetType,
       createdById: session.profile.id,
       attachmentUrl: parsed.attachmentUrl || null,
-      // HANYA buat TaskAssignment jika targetType === SPECIFIC
+      submissionUrl: parsed.submissionUrl || null,
       assignments:
         parsed.targetType === TaskTargetType.SPECIFIC && parsed.assignees && parsed.assignees.length > 0
           ? {
@@ -74,9 +73,9 @@ export async function createTaskAction(data: {
   });
 
   revalidatePath("/home/tasks");
-  revalidatePath("/home/my-tasks");
-  revalidatePath("/home/manage/tasks");
+  revalidatePath("/home/materials");
   revalidatePath("/tasks");
+  revalidatePath("/home");
   revalidatePath("/");
 
   return { success: true, taskId: task.id };
@@ -88,9 +87,12 @@ export async function updateTaskAction(
     title: string;
     description?: string;
     courseId?: string | null;
-    status: TaskStatus;
     priority: TaskPriority;
     deadline?: string | null;
+    targetType: TaskTargetType;
+    assignees?: string[];
+    attachmentUrl?: string;
+    submissionUrl?: string;
   }
 ) {
   const session = await getCurrentSession();
@@ -101,6 +103,7 @@ export async function updateTaskAction(
 
   const existingTask = await prisma.task.findUnique({
     where: { id: taskId },
+    include: { assignments: true },
   });
   if (!existingTask) {
     throw new Error("Tugas tidak ditemukan.");
@@ -112,15 +115,38 @@ export async function updateTaskAction(
 
   const parsed = updateTaskSchema.parse(data);
 
+  // Jika targetType berubah atau di-update:
+  if (parsed.targetType === TaskTargetType.ALL) {
+    // Bersihkan task_assignments jika pindah ke ALL
+    await prisma.taskAssignment.deleteMany({
+      where: { taskId },
+    });
+  } else if (parsed.targetType === TaskTargetType.SPECIFIC) {
+    // Reset dan masukkan assignees baru
+    await prisma.taskAssignment.deleteMany({
+      where: { taskId },
+    });
+    if (parsed.assignees && parsed.assignees.length > 0) {
+      await prisma.taskAssignment.createMany({
+        data: parsed.assignees.map((profileId) => ({
+          taskId,
+          profileId,
+        })),
+      });
+    }
+  }
+
   const updated = await prisma.task.update({
     where: { id: taskId },
     data: {
       title: parsed.title,
       description: parsed.description || null,
       courseId: parsed.courseId || null,
-      status: parsed.status,
       priority: parsed.priority,
       deadline: parsed.deadline ? new Date(parsed.deadline) : null,
+      targetType: parsed.targetType,
+      attachmentUrl: parsed.attachmentUrl || null,
+      submissionUrl: parsed.submissionUrl || null,
     },
   });
 
@@ -129,13 +155,13 @@ export async function updateTaskAction(
     action: ActivityAction.TASK_UPDATED,
     entityType: "Task",
     entityId: updated.id,
-    metadata: { title: updated.title, status: updated.status },
+    metadata: { title: updated.title, targetType: updated.targetType },
   });
 
   revalidatePath("/home/tasks");
-  revalidatePath("/home/my-tasks");
-  revalidatePath("/home/manage/tasks");
+  revalidatePath("/home/materials");
   revalidatePath("/tasks");
+  revalidatePath("/home");
   revalidatePath("/");
 
   return { success: true };
@@ -172,9 +198,9 @@ export async function deleteTaskAction(taskId: string) {
   });
 
   revalidatePath("/home/tasks");
-  revalidatePath("/home/my-tasks");
-  revalidatePath("/home/manage/tasks");
+  revalidatePath("/home/materials");
   revalidatePath("/tasks");
+  revalidatePath("/home");
   revalidatePath("/");
 
   return { success: true };
@@ -184,7 +210,7 @@ export async function updateTaskProgressAction(
   taskId: string,
   data: {
     status: TaskStatus;
-    progress: number;
+    progress?: number;
     notes?: string;
   }
 ) {
@@ -194,7 +220,18 @@ export async function updateTaskProgressAction(
   }
   assertCanMutate(session);
 
-  const parsed = updateProgressSchema.parse(data);
+  let defaultProgress = data.progress;
+  if (defaultProgress === undefined) {
+    if (data.status === TaskStatus.DONE) defaultProgress = 100;
+    else if (data.status === TaskStatus.IN_PROGRESS) defaultProgress = 50;
+    else defaultProgress = 0;
+  }
+
+  const parsed = updateProgressSchema.parse({
+    status: data.status,
+    progress: defaultProgress,
+    notes: data.notes,
+  });
 
   // Verifikasi tugas dapat diakses user
   const task = await prisma.task.findUnique({
@@ -220,7 +257,7 @@ export async function updateTaskProgressAction(
     throw new Error("Tugas ini tidak ditugaskan kepada Anda.");
   }
 
-  // Lazy upsert progress personal mahasiswa
+  // Upsert progress personal mahasiswa
   await prisma.taskProgress.upsert({
     where: {
       taskId_profileId: {
@@ -243,7 +280,7 @@ export async function updateTaskProgressAction(
   });
 
   revalidatePath("/home/tasks");
-  revalidatePath("/home/my-tasks");
+  revalidatePath("/home");
   revalidatePath("/");
 
   return { success: true };
