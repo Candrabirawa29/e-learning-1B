@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth/session";
 import { MemberTable } from "@/components/members/MemberTable";
+import { CreateMemberDialog } from "@/components/members/CreateMemberDialog";
 import { Badge } from "@/components/ui/badge";
 
 export const dynamic = "force-dynamic";
@@ -31,16 +32,20 @@ export default async function ManageMembersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="border-b pb-4">
-        <div className="flex items-center gap-2">
-          <h1 className="text-xl font-bold tracking-tight">Manajemen Anggota Kelas 1-B</h1>
-          <Badge variant="outline" className="text-[10px] bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300 border-red-300">
-            Admin Only
-          </Badge>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b pb-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-bold tracking-tight">Manajemen Anggota Kelas 1-B</h1>
+            <Badge variant="outline" className="text-[10px] bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300 border-red-300">
+              Admin Only
+            </Badge>
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Kelola peran pengguna (Member, PJ, Admin), reset kata sandi mahasiswa, dan pantau status akun mahasiswa Kelas 1-B.
+          </p>
         </div>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Kelola peran pengguna (Member, PJ, Admin), reset kata sandi mahasiswa, dan pantau status akun mahasiswa Kelas 1-B.
-        </p>
+
+        <CreateMemberDialog />
       </div>
 
       <MemberTable members={memberList} session={session} />

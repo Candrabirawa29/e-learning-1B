@@ -16,7 +16,11 @@ export default async function HomeLayout({
     <div className="min-h-screen flex flex-col bg-background">
       <Navbar session={session} />
       {session.isViewAs && session.viewAsRole && (
-        <ViewAsBanner viewAsRole={session.viewAsRole} />
+        <ViewAsBanner
+          viewAsRole={session.viewAsRole}
+          isImpersonating={session.isImpersonating}
+          impersonatedUser={session.impersonatedUser}
+        />
       )}
       <div className="flex-1 flex max-w-7xl w-full mx-auto">
         <Sidebar session={session} />

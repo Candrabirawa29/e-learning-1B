@@ -29,9 +29,16 @@ export interface CurrentUserSession {
   effectiveRole: EffectiveRole;
   isViewAs: boolean;
   viewAsRole: EffectiveRole | null;
+  isImpersonating?: boolean;
+  impersonatedUser?: {
+    id: string;
+    name: string | null;
+    email: string;
+  } | null;
 }
 
 export const VIEW_AS_COOKIE = "class1b_view_as";
+export const IMPERSONATE_COOKIE = "class1b_impersonate_user";
 
 export const getCurrentSession = cache(async (): Promise<CurrentUserSession> => {
   const supabase = await createClient();
@@ -48,6 +55,8 @@ export const getCurrentSession = cache(async (): Promise<CurrentUserSession> => 
       effectiveRole: "GUEST",
       isViewAs: false,
       viewAsRole: null,
+      isImpersonating: false,
+      impersonatedUser: null,
     };
   }
 
@@ -98,8 +107,61 @@ export const getCurrentSession = cache(async (): Promise<CurrentUserSession> => 
   const membership = profile.memberships[0] || null;
   const realRole = membership?.role || Role.MEMBER;
 
-  // Cek cookie View-As
+  // Cek cookie Impersonate & View-As
   const cookieStore = await cookies();
+  const impersonateProfileId = cookieStore.get(IMPERSONATE_COOKIE)?.value;
+
+  // Hanya Admin sungguhan yang diizinkan impersonasi akun mahasiswa
+  if (realRole === Role.ADMIN && impersonateProfileId) {
+    const impersonatedProfile = await prisma.profile.findUnique({
+      where: { id: impersonateProfileId },
+      include: {
+        memberships: {
+          include: {
+            class: true,
+          },
+        },
+      },
+    });
+
+    if (impersonatedProfile) {
+      const impMembership = impersonatedProfile.memberships[0] || null;
+      const impRole = (impMembership?.role as EffectiveRole) || "MEMBER";
+
+      return {
+        user: {
+          id: impersonatedProfile.id,
+          email: impersonatedProfile.email,
+        },
+        profile: {
+          id: impersonatedProfile.id,
+          email: impersonatedProfile.email,
+          name: impersonatedProfile.name,
+          avatarUrl: impersonatedProfile.avatarUrl,
+          mustChangePassword: false, // Tidak memblokir admin dengan layar ganti password
+          isActive: impersonatedProfile.isActive,
+        },
+        membership: impMembership
+          ? {
+              id: impMembership.id,
+              classId: impMembership.classId,
+              role: impMembership.role,
+            }
+          : null,
+        realRole: Role.ADMIN,
+        effectiveRole: impRole,
+        isViewAs: true,
+        viewAsRole: impRole,
+        isImpersonating: true,
+        impersonatedUser: {
+          id: impersonatedProfile.id,
+          name: impersonatedProfile.name,
+          email: impersonatedProfile.email,
+        },
+      };
+    }
+  }
+
   const viewAsCookieVal = cookieStore.get(VIEW_AS_COOKIE)?.value;
 
   let effectiveRole: EffectiveRole = realRole;
@@ -141,6 +203,8 @@ export const getCurrentSession = cache(async (): Promise<CurrentUserSession> => 
     effectiveRole,
     isViewAs,
     viewAsRole,
+    isImpersonating: false,
+    impersonatedUser: null,
   };
 });
 
@@ -174,7 +238,7 @@ export const requirePJOrAdmin = cache(async (): Promise<CurrentUserSession> => {
 });
 
 export function assertCanMutate(session: CurrentUserSession) {
-  if (session.isViewAs) {
+  if (session.isViewAs && !session.isImpersonating) {
     throw new Error(
       "Aksi mutation diblokir: Anda sedang berada dalam mode pratinjau (View As). Silakan kembali ke mode Admin untuk melakukan perubahan data."
     );

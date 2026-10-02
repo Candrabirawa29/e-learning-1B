@@ -3,14 +3,18 @@
 import * as React from "react";
 import {
   updateMemberRoleAction,
+  updateMemberAction,
+  deleteMemberAction,
   resetMemberPasswordAction,
   toggleMemberActiveAction,
+  impersonateMemberAction,
 } from "@/actions/members";
 import { CurrentUserSession } from "@/lib/auth/session";
 import { formatDateTimeIndo } from "@/lib/date";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,8 +41,21 @@ import {
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Role } from "@prisma/client";
-import { MoreHorizontal, Search, Shield, KeyRound, UserCheck, UserX, Loader2 } from "lucide-react";
+import {
+  MoreHorizontal,
+  Search,
+  Shield,
+  KeyRound,
+  UserCheck,
+  UserX,
+  Loader2,
+  LogIn,
+  Edit2,
+  Trash2,
+  AlertTriangle,
+} from "lucide-react";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 
 export interface MemberListItem {
   id: string;
@@ -57,16 +74,33 @@ interface MemberTableProps {
 }
 
 export function MemberTable({ members, session }: MemberTableProps) {
+  const router = useRouter();
   const [search, setSearch] = React.useState("");
   const [roleFilter, setRoleFilter] = React.useState<string>("all");
 
+  // State: Impersonate
+  const [impersonatingId, setImpersonatingId] = React.useState<string | null>(null);
+
+  // State: Edit Member Modal
   const [selectedMember, setSelectedMember] = React.useState<MemberListItem | null>(null);
+  const [editDialogOpen, setEditDialogOpen] = React.useState(false);
+  const [editName, setEditName] = React.useState("");
+  const [editRole, setEditRole] = React.useState<Role>(Role.MEMBER);
+  const [editActive, setEditActive] = React.useState<boolean>(true);
+  const [isUpdating, setIsUpdating] = React.useState(false);
+
+  // State: Role Change Dialog
   const [roleDialogOpen, setRoleDialogOpen] = React.useState(false);
   const [newRole, setNewRole] = React.useState<Role>(Role.MEMBER);
   const [isUpdatingRole, setIsUpdatingRole] = React.useState(false);
 
+  // State: Reset Password Dialog
   const [resetDialogOpen, setResetDialogOpen] = React.useState(false);
   const [isResetting, setIsResetting] = React.useState(false);
+
+  // State: Delete Member Dialog
+  const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
+  const [isDeleting, setIsDeleting] = React.useState(false);
 
   const filteredMembers = React.useMemo(() => {
     return members.filter((m) => {
@@ -81,6 +115,83 @@ export function MemberTable({ members, session }: MemberTableProps) {
     });
   }, [members, search, roleFilter]);
 
+  // Handle Masuk Sebagai Mahasiswa (Impersonate)
+  const handleImpersonate = async (member: MemberListItem) => {
+    if (member.id === session.user?.id) {
+      toast.info("Ini adalah akun Anda sendiri saat ini.");
+      return;
+    }
+
+    setImpersonatingId(member.id);
+    try {
+      toast.loading(`Masuk sebagai ${member.name || member.email}...`, { id: "imp-toast" });
+      const res = await impersonateMemberAction(member.id);
+      if (res.success) {
+        toast.success(`Berhasil masuk sebagai ${member.name || member.email}.`, { id: "imp-toast" });
+        router.push(res.redirectTo || "/home");
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Gagal masuk sebagai mahasiswa", { id: "imp-toast" });
+      setImpersonatingId(null);
+    }
+  };
+
+  // Handle Edit Member
+  const handleOpenEdit = (member: MemberListItem) => {
+    setSelectedMember(member);
+    setEditName(member.name || member.email.split("@")[0]);
+    setEditRole(member.role);
+    setEditActive(member.isActive);
+    setEditDialogOpen(true);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedMember) return;
+
+    if (!editName.trim()) {
+      toast.error("Nama mahasiswa tidak boleh kosong.");
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      const res = await updateMemberAction(selectedMember.id, {
+        name: editName.trim(),
+        role: editRole,
+        isActive: editActive,
+      });
+      toast.success(res.message);
+      setEditDialogOpen(false);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Gagal memperbarui data anggota");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  // Handle Delete Member
+  const handleOpenDelete = (member: MemberListItem) => {
+    setSelectedMember(member);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteSubmit = async () => {
+    if (!selectedMember) return;
+
+    setIsDeleting(true);
+    try {
+      const res = await deleteMemberAction(selectedMember.id);
+      toast.success(res.message);
+      setDeleteDialogOpen(false);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Gagal menghapus anggota");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // Handle Role Change
   const handleRoleChangeSubmit = async () => {
     if (!selectedMember) return;
     if (selectedMember.id === session.user?.id && newRole !== "ADMIN") {
@@ -99,6 +210,7 @@ export function MemberTable({ members, session }: MemberTableProps) {
     }
   };
 
+  // Handle Reset Password
   const handleResetPasswordSubmit = async () => {
     if (!selectedMember) return;
     setIsResetting(true);
@@ -113,6 +225,7 @@ export function MemberTable({ members, session }: MemberTableProps) {
     }
   };
 
+  // Handle Toggle Active
   const handleToggleActive = async (member: MemberListItem) => {
     if (member.id === session.user?.id) {
       toast.error("Anda tidak dapat menonaktifkan akun Anda sendiri.");
@@ -134,7 +247,7 @@ export function MemberTable({ members, session }: MemberTableProps) {
 
   return (
     <div className="space-y-4">
-      {/* Search & Filter */}
+      {/* Search & Filter Bar */}
       <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between bg-card p-3 border rounded-lg">
         <div className="relative flex-1">
           <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
@@ -164,12 +277,12 @@ export function MemberTable({ members, session }: MemberTableProps) {
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50 text-[11px]">
-              <TableHead className="w-[30%]">Mahasiswa</TableHead>
-              <TableHead className="w-[15%]">Role</TableHead>
-              <TableHead className="w-[15%]">Status Akun</TableHead>
-              <TableHead className="w-[15%]">Ganti Password</TableHead>
-              <TableHead className="w-[20%]">Login Terakhir</TableHead>
-              <TableHead className="w-[5%] text-right"></TableHead>
+              <TableHead className="w-[28%]">Mahasiswa</TableHead>
+              <TableHead className="w-[12%]">Role</TableHead>
+              <TableHead className="w-[12%]">Status Akun</TableHead>
+              <TableHead className="w-[14%]">Ganti Password</TableHead>
+              <TableHead className="w-[16%]">Login Terakhir</TableHead>
+              <TableHead className="w-[18%] text-right">Aksi</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -180,110 +293,282 @@ export function MemberTable({ members, session }: MemberTableProps) {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredMembers.map((member) => (
-                <TableRow key={member.id} className="text-xs">
-                  <TableCell className="py-2.5">
-                    <div className="font-semibold text-xs text-foreground">
-                      {member.name || member.email.split("@")[0]}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground">{member.email}</div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={`text-[10px] uppercase font-semibold ${roleBadgeColor[member.role]}`}
-                    >
-                      {member.role}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {member.isActive ? (
-                      <span className="inline-flex items-center text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                        ● Aktif
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center text-[11px] font-medium text-red-600 dark:text-red-400">
-                        ● Nonaktif
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {member.mustChangePassword ? (
-                      <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-300 font-normal">
-                        Wajib Ganti
-                      </Badge>
-                    ) : (
-                      <span className="text-[11px] text-muted-foreground">Sudah Mengganti</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground text-[11px]">
-                    {member.lastLoginAt ? formatDateTimeIndo(member.lastLoginAt) : "Belum pernah"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button variant="ghost" size="icon" className="h-7 w-7">
-                            <MoreHorizontal className="h-4 w-4" />
-                            <span className="sr-only">Aksi</span>
-                          </Button>
-                        }
-                      />
-                      <DropdownMenuContent align="end" className="w-48 text-xs">
-                        <DropdownMenuGroup>
+              filteredMembers.map((member) => {
+                const isSelf = member.id === session.user?.id;
+                const isCurrentImpersonating = impersonatingId === member.id;
 
-                          <DropdownMenuLabel className="text-xs">Kelola Pengguna</DropdownMenuLabel>
-                        </DropdownMenuGroup>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setSelectedMember(member);
-                            setNewRole(member.role);
-                            setRoleDialogOpen(true);
-                          }}
-                          className="cursor-pointer gap-2"
-                        >
-                          <Shield className="h-3.5 w-3.5 text-muted-foreground" />
-                          Ubah Role...
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setSelectedMember(member);
-                            setResetDialogOpen(true);
-                          }}
-                          className="cursor-pointer gap-2 text-amber-600 dark:text-amber-400"
-                        >
-                          <KeyRound className="h-3.5 w-3.5" />
-                          Reset Password...
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => handleToggleActive(member)}
-                          className="cursor-pointer gap-2"
-                        >
-                          {member.isActive ? (
-                            <>
-                              <UserX className="h-3.5 w-3.5 text-red-500" />
-                              Nonaktifkan Akun
-                            </>
-                          ) : (
-                            <>
-                              <UserCheck className="h-3.5 w-3.5 text-emerald-500" />
-                              Aktifkan Akun
-                            </>
-                          )}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))
+                return (
+                  <TableRow key={member.id} className="text-xs">
+                    <TableCell className="py-2.5">
+                      <div className="font-semibold text-xs text-foreground flex items-center gap-1.5">
+                        <span>{member.name || member.email.split("@")[0]}</span>
+                        {isSelf && (
+                          <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-primary/40 text-primary">
+                            Anda
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">{member.email}</div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] uppercase font-semibold ${roleBadgeColor[member.role]}`}
+                      >
+                        {member.role}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {member.isActive ? (
+                        <span className="inline-flex items-center text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                          ● Aktif
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center text-[11px] font-medium text-red-600 dark:text-red-400">
+                          ● Nonaktif
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {member.mustChangePassword ? (
+                        <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-300 font-normal">
+                          Wajib Ganti
+                        </Badge>
+                      ) : (
+                        <span className="text-[11px] text-muted-foreground">Sudah Mengganti</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-[11px]">
+                      {member.lastLoginAt ? formatDateTimeIndo(member.lastLoginAt) : "Belum pernah"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {/* Tombol Cepat: Masuk sebagai mahasiswa tanpa login */}
+                        {!isSelf && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleImpersonate(member)}
+                            disabled={isCurrentImpersonating}
+                            className="h-7 px-2 text-[11px] gap-1 border-blue-500/30 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40"
+                            title="Masuk sebagai akun mahasiswa ini tanpa perlu password"
+                          >
+                            {isCurrentImpersonating ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <LogIn className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                            )}
+                            <span className="hidden xl:inline">Masuk Sebagai</span>
+                          </Button>
+                        )}
+
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            render={
+                              <Button variant="ghost" size="icon" className="h-7 w-7">
+                                <MoreHorizontal className="h-4 w-4" />
+                                <span className="sr-only">Menu Opsi</span>
+                              </Button>
+                            }
+                          />
+                          <DropdownMenuContent align="end" className="w-52 text-xs">
+                            <DropdownMenuGroup>
+                              <DropdownMenuLabel className="text-xs">Kelola Pengguna</DropdownMenuLabel>
+                            </DropdownMenuGroup>
+                            <DropdownMenuSeparator />
+
+                            {!isSelf && (
+                              <DropdownMenuItem
+                                onClick={() => handleImpersonate(member)}
+                                className="cursor-pointer gap-2 font-medium text-blue-600 dark:text-blue-400"
+                              >
+                                <LogIn className="h-3.5 w-3.5" />
+                                Masuk Sebagai Akun Ini
+                              </DropdownMenuItem>
+                            )}
+
+                            <DropdownMenuItem
+                              onClick={() => handleOpenEdit(member)}
+                              className="cursor-pointer gap-2"
+                            >
+                              <Edit2 className="h-3.5 w-3.5 text-muted-foreground" />
+                              Edit Data Mahasiswa...
+                            </DropdownMenuItem>
+
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setSelectedMember(member);
+                                setNewRole(member.role);
+                                setRoleDialogOpen(true);
+                              }}
+                              className="cursor-pointer gap-2"
+                            >
+                              <Shield className="h-3.5 w-3.5 text-muted-foreground" />
+                              Ubah Role...
+                            </DropdownMenuItem>
+
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setSelectedMember(member);
+                                setResetDialogOpen(true);
+                              }}
+                              className="cursor-pointer gap-2 text-amber-600 dark:text-amber-400"
+                            >
+                              <KeyRound className="h-3.5 w-3.5" />
+                              Reset Password Default...
+                            </DropdownMenuItem>
+
+                            <DropdownMenuSeparator />
+
+                            {!isSelf && (
+                              <>
+                                <DropdownMenuItem
+                                  onClick={() => handleToggleActive(member)}
+                                  className="cursor-pointer gap-2"
+                                >
+                                  {member.isActive ? (
+                                    <>
+                                      <UserX className="h-3.5 w-3.5 text-amber-500" />
+                                      Nonaktifkan Akun
+                                    </>
+                                  ) : (
+                                    <>
+                                      <UserCheck className="h-3.5 w-3.5 text-emerald-500" />
+                                      Aktifkan Akun
+                                    </>
+                                  )}
+                                </DropdownMenuItem>
+
+                                <DropdownMenuItem
+                                  onClick={() => handleOpenDelete(member)}
+                                  className="cursor-pointer gap-2 text-red-600 dark:text-red-400 focus:text-red-600"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                  Hapus dari Kelas...
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
       </div>
 
-      {/* Role Change Modal */}
+      {/* Modal: Edit Data Mahasiswa */}
+      {selectedMember && (
+        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-sm font-semibold flex items-center gap-2">
+                <Edit2 className="h-4 w-4 text-primary" />
+                Edit Data Mahasiswa
+              </DialogTitle>
+              <DialogDescription className="text-xs">
+                Perbarui informasi nama lengkap, hak akses peran, dan status keaktifan akun mahasiswa.
+              </DialogDescription>
+            </DialogHeader>
+
+            <form onSubmit={handleEditSubmit} className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-email" className="text-xs font-medium">
+                  Alamat Email (Permanen)
+                </Label>
+                <Input
+                  id="edit-email"
+                  value={selectedMember.email}
+                  disabled
+                  className="h-8 text-xs bg-muted/60"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-name" className="text-xs font-medium">
+                  Nama Lengkap Mahasiswa
+                </Label>
+                <Input
+                  id="edit-name"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  required
+                  className="h-8 text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">Peran / Role</Label>
+                  <Select value={editRole} onValueChange={(val) => { if (val) setEditRole(val as Role); }}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={Role.MEMBER} className="text-xs">
+                        MEMBER
+                      </SelectItem>
+                      <SelectItem value={Role.PJ} className="text-xs">
+                        PJ
+                      </SelectItem>
+                      <SelectItem value={Role.ADMIN} className="text-xs">
+                        ADMIN
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">Status Akun</Label>
+                  <Select
+                    value={editActive ? "true" : "false"}
+                    onValueChange={(val) => setEditActive(val === "true")}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="true" className="text-xs">
+                        Aktif
+                      </SelectItem>
+                      <SelectItem value="false" className="text-xs">
+                        Nonaktif
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <DialogFooter className="pt-2 border-t">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditDialogOpen(false)}
+                  disabled={isUpdating}
+                  className="text-xs h-8"
+                >
+                  Batal
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={isUpdating}
+                  className="text-xs h-8 gap-1.5"
+                >
+                  {isUpdating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Simpan Perubahan
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Modal: Ubah Role Cepat */}
       {selectedMember && (
         <Dialog open={roleDialogOpen} onOpenChange={setRoleDialogOpen}>
           <DialogContent className="max-w-sm">
@@ -340,7 +625,7 @@ export function MemberTable({ members, session }: MemberTableProps) {
         </Dialog>
       )}
 
-      {/* Reset Password Modal */}
+      {/* Modal: Reset Password */}
       {selectedMember && (
         <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
           <DialogContent className="max-w-sm">
@@ -353,13 +638,12 @@ export function MemberTable({ members, session }: MemberTableProps) {
                 <span className="font-semibold text-foreground">{selectedMember.email}</span>?
               </DialogDescription>
             </DialogHeader>
-
+            
             <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded text-[11px] text-amber-900 dark:text-amber-200 space-y-1">
               <p className="font-semibold">Konsekuensi:</p>
               <ul className="list-disc pl-4 space-y-0.5">
-                <li>Password akan dikembalikan ke password default kelas.</li>
+                <li>Password akan dikembalikan ke password default kelas (<code>pwuinjkt</code>).</li>
                 <li>Mahasiswa akan diwajibkan mengganti password baru saat login berikutnya.</li>
-                <li>Admin tidak pernah dapat melihat password lama pengguna.</li>
               </ul>
             </div>
 
@@ -381,6 +665,56 @@ export function MemberTable({ members, session }: MemberTableProps) {
               >
                 {isResetting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 Reset Password
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Modal: Hapus Mahasiswa */}
+      {selectedMember && (
+        <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="text-sm font-semibold text-red-600 dark:text-red-400 flex items-center gap-1.5">
+                <AlertTriangle className="h-4 w-4" />
+                Hapus Anggota Kelas
+              </DialogTitle>
+              <DialogDescription className="text-xs">
+                Apakah Anda yakin ingin menghapus{" "}
+                <span className="font-semibold text-foreground">
+                  {selectedMember.name || selectedMember.email}
+                </span>{" "}
+                ({selectedMember.email}) dari keanggotaan Kelas 1-B?
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded text-[11px] text-red-900 dark:text-red-200 space-y-1">
+              <p className="font-semibold">Peringatan:</p>
+              <p>
+                Akun mahasiswa ini tidak akan dapat lagi mengakses workspace, tugas, dan materi Kelas 1-B.
+              </p>
+            </div>
+
+            <DialogFooter className="pt-2 border-t">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDeleteDialogOpen(false)}
+                disabled={isDeleting}
+                className="text-xs h-8"
+              >
+                Batal
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={handleDeleteSubmit}
+                disabled={isDeleting}
+                className="text-xs h-8 gap-1.5"
+              >
+                {isDeleting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Hapus Anggota
               </Button>
             </DialogFooter>
           </DialogContent>
