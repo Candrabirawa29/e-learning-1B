@@ -128,7 +128,9 @@ export function MaterialList({ materials, courses, session }: MaterialListProps)
         <div className="flex items-center gap-2">
           <Select value={selectedCourse} onValueChange={(val) => { if (val) setSelectedCourse(val); }}>
             <SelectTrigger className="h-8 text-xs w-[170px]">
-              <SelectValue placeholder="Mata Kuliah" />
+              <SelectValue placeholder="Mata Kuliah">
+                {selectedCourse === "all" ? "Semua Matkul" : courses.find((c) => c.id === selectedCourse)?.name}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all" className="text-xs">Semua Matkul</SelectItem>
@@ -142,7 +144,9 @@ export function MaterialList({ materials, courses, session }: MaterialListProps)
 
           <Select value={selectedType} onValueChange={(val) => { if (val) setSelectedType(val); }}>
             <SelectTrigger className="h-8 text-xs w-[120px]">
-              <SelectValue placeholder="Tipe Berkas" />
+              <SelectValue placeholder="Tipe Berkas">
+                {selectedType === "all" ? "Semua Tipe" : selectedType}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all" className="text-xs">Semua Tipe</SelectItem>

@@ -257,7 +257,9 @@ export function UploadMaterialDialog({
                 </Label>
                 <Select value={courseId} onValueChange={(val) => { if (val) setCourseId(val); }}>
                   <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder="Pilih Mata Kuliah" />
+                    <SelectValue placeholder="Pilih Mata Kuliah">
+                      {courses.find((c) => c.id === courseId)?.name}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {courses.map((c) => (
@@ -273,7 +275,9 @@ export function UploadMaterialDialog({
                 <Label className="text-xs font-medium">Sub-Topik / Bab</Label>
                 <Select value={topicId} onValueChange={(val) => { if (val) setTopicId(val); }}>
                   <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder="Pilih Sub-Topik (Opsional)" />
+                    <SelectValue placeholder="Pilih Sub-Topik (Opsional)">
+                      {topicId === "none" ? "-- Umum (Tanpa Sub-topik) --" : availableTopics.find((t) => t.id === topicId)?.title}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none" className="text-xs">

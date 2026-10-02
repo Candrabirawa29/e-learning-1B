@@ -71,7 +71,7 @@ export default async function HomeMaterialsPage() {
       {/* Top: Weekly Schedule */}
       <WeeklySchedule
         schedules={schedules}
-        courses={courses.map((c) => ({ id: c.id, name: c.name }))}
+        courses={courses.map((c) => ({ id: c.id, name: c.name, code: c.code }))}
         session={session}
       />
 

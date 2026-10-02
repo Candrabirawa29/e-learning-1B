@@ -200,7 +200,9 @@ export function TaskFormDialog({
                 <Label className="text-xs font-medium">Mata Kuliah</Label>
                 <Select value={courseId} onValueChange={(val) => { if (val) setCourseId(val); }}>
                   <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder="Pilih Mata Kuliah (Opsional)" />
+                    <SelectValue placeholder="Pilih Mata Kuliah (Opsional)">
+                      {courseId === "none" ? "Umum / Tanpa Matkul" : courses.find((c) => c.id === courseId)?.name}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none" className="text-xs">
@@ -222,7 +224,15 @@ export function TaskFormDialog({
                   onValueChange={(val) => { if (val) setPriority(val as TaskPriority); }}
                 >
                   <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
+                    <SelectValue placeholder="Pilih Prioritas">
+                      {priority === TaskPriority.LOW
+                        ? "Rendah (Low)"
+                        : priority === TaskPriority.MEDIUM
+                        ? "Sedang (Medium)"
+                        : priority === TaskPriority.HIGH
+                        ? "Tinggi (High)"
+                        : "Mendesak (Urgent)"}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={TaskPriority.LOW} className="text-xs">

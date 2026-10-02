@@ -201,15 +201,16 @@ export default async function HomePage() {
     session.effectiveRole === "ADMIN" || session.effectiveRole === "PJ";
 
   if (isManagementView) {
-    const [recentActivities] = await Promise.all([
-      prisma.activityLog.findMany({
-        take: 8,
-        orderBy: { createdAt: "desc" },
-        include: {
-          actor: { select: { name: true, email: true } },
-        },
-      }),
-    ]);
+    const isAdmin = session.effectiveRole === "ADMIN";
+    const recentActivities = isAdmin
+      ? await prisma.activityLog.findMany({
+          take: 8,
+          orderBy: { createdAt: "desc" },
+          include: {
+            actor: { select: { name: true, email: true } },
+          },
+        })
+      : [];
 
     // Filter tasks untuk horizontal stacked bar:
     // Jika Admin: seluruh tugas aktif kelas

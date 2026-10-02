@@ -178,7 +178,11 @@ export function TaskList({ tasks, session, courses, members = [] }: TaskListProp
               onValueChange={(val) => { if (val) updateQuery("course", val); }}
             >
               <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Semua Matkul" />
+                <SelectValue placeholder="Semua Matkul">
+                  {selectedCourse === "all"
+                    ? "Semua Matkul"
+                    : courses.find((c) => c.id === selectedCourse)?.name || "Semua Matkul"}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all" className="text-xs">
@@ -201,7 +205,9 @@ export function TaskList({ tasks, session, courses, members = [] }: TaskListProp
               onValueChange={(val) => { if (val) updateQuery("status", val); }}
             >
               <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Semua Status" />
+                <SelectValue placeholder="Semua Status">
+                  {selectedStatus === "all" ? "Semua Status" : selectedStatus.replace(/_/g, " ")}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all" className="text-xs">
@@ -231,7 +237,17 @@ export function TaskList({ tasks, session, courses, members = [] }: TaskListProp
               onValueChange={(val) => { if (val) updateQuery("priority", val); }}
             >
               <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Semua Prioritas" />
+                <SelectValue placeholder="Semua Prioritas">
+                  {selectedPriority === "all"
+                    ? "Semua Prioritas"
+                    : selectedPriority === TaskPriority.LOW
+                    ? "Rendah"
+                    : selectedPriority === TaskPriority.MEDIUM
+                    ? "Sedang"
+                    : selectedPriority === TaskPriority.HIGH
+                    ? "Tinggi"
+                    : "Mendesak"}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all" className="text-xs">
@@ -261,7 +277,13 @@ export function TaskList({ tasks, session, courses, members = [] }: TaskListProp
               onValueChange={(val) => { if (val) updateQuery("sort", val); }}
             >
               <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Urutkan" />
+                <SelectValue placeholder="Urutkan">
+                  {selectedSort === "deadline_asc"
+                    ? "Tenggat Terdekat"
+                    : selectedSort === "deadline_desc"
+                    ? "Tenggat Terjauh"
+                    : "Terbaru Dibuat"}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="deadline_asc" className="text-xs">

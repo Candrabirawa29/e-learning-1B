@@ -57,7 +57,7 @@ export function SidebarNav({ session, isMobile = false }: SidebarNavProps) {
   const managementLinks = isAdmin ? adminManagementLinks : isPJ ? pjManagementLinks : [];
 
   return (
-    <nav className={cn("space-y-6 text-xs", isMobile ? "px-1" : "py-4")}>
+    <nav className={cn("space-y-6 sticky text-xs", isMobile ? "px-1" : "py-4")}>
       {isGuest ? (
         <div className="space-y-1">
           <div className="px-3 py-1 font-semibold text-[11px] text-muted-foreground uppercase tracking-wider">

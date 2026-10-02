@@ -180,8 +180,8 @@ export function AdminPjDashboard({
         description="Persentase penyelesaian mahasiswa aktif (dihitung dari akun yang telah diaktivasi)."
       />
 
-      {/* Aktivitas Terkini */}
-      {recentActivities.length > 0 && (
+      {/* Aktivitas Terkini (Hanya Admin) */}
+      {isAdmin && recentActivities.length > 0 && (
         <Card className="border bg-card">
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center justify-between">
@@ -189,14 +189,12 @@ export function AdminPjDashboard({
                 <Activity className="h-4 w-4 text-primary" />
                 <h3 className="font-semibold text-xs text-foreground">Log Aktivitas Terbaru</h3>
               </div>
-              {isAdmin && (
-                <Link
-                  href="/home/manage/audit-logs"
-                  className="text-xs text-primary hover:underline font-medium"
-                >
-                  Lihat Log Lengkap
-                </Link>
-              )}
+              <Link
+                href="/home/manage/audit"
+                className="text-xs text-primary hover:underline font-medium"
+              >
+                Lihat Log Lengkap
+              </Link>
             </div>
 
             <div className="divide-y text-xs">

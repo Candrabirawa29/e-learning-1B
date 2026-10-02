@@ -261,7 +261,9 @@ export function MemberTable({ members, session }: MemberTableProps) {
 
         <Select value={roleFilter} onValueChange={(val) => { if (val) setRoleFilter(val); }}>
           <SelectTrigger className="h-8 text-xs w-[140px]">
-            <SelectValue placeholder="Semua Role" />
+            <SelectValue placeholder="Semua Role">
+              {roleFilter === "all" ? "Semua Role" : roleFilter}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all" className="text-xs">Semua Role</SelectItem>

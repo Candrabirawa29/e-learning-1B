@@ -7,7 +7,23 @@ import { deleteCourseScheduleAction } from "@/actions/courses";
 import { minutesToTimeString, DAYS_OF_WEEK_INDO } from "@/lib/date";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Calendar, Clock, MapPin, User, Trash2, Plus } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Calendar,
+  Clock,
+  MapPin,
+  User,
+  Trash2,
+  Plus,
+  MoreVertical,
+  Edit3,
+} from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { CourseScheduleDialog } from "./CourseScheduleDialog";
@@ -29,12 +45,14 @@ export interface ScheduleItem {
 
 interface WeeklyScheduleProps {
   schedules: ScheduleItem[];
-  courses: { id: string; name: string }[];
+  courses: { id: string; name: string; code?: string | null }[];
   session: CurrentUserSession;
 }
 
 export function WeeklySchedule({ schedules, courses, session }: WeeklyScheduleProps) {
   const [addScheduleOpen, setAddScheduleOpen] = React.useState(false);
+  const [scheduleForEdit, setScheduleForEdit] = React.useState<ScheduleItem | null>(null);
+  const [editScheduleOpen, setEditScheduleOpen] = React.useState(false);
 
   // Hari hari ini (1 = Senin ... 7 = Minggu)
   const currentDayOfWeek = React.useMemo(() => {
@@ -50,8 +68,9 @@ export function WeeklySchedule({ schedules, courses, session }: WeeklySchedulePr
     return hasWeekend ? [1, 2, 3, 4, 5, 6, 7] : [1, 2, 3, 4, 5];
   }, [schedules]);
 
-  const handleDeleteSchedule = async (scheduleId: string) => {
-    if (!confirm("Hapus jadwal perkuliahan ini?")) return;
+  const handleDeleteSchedule = async (scheduleId: string, courseName?: string) => {
+    const label = courseName ? `jadwal mata kuliah "${courseName}"` : "jadwal ini";
+    if (!confirm(`Hapus ${label}? Tindakan ini tidak dapat dibatalkan.`)) return;
     try {
       await deleteCourseScheduleAction(scheduleId);
       toast.success("Jadwal berhasil dihapus.");
@@ -61,39 +80,42 @@ export function WeeklySchedule({ schedules, courses, session }: WeeklySchedulePr
   };
 
   const canAddAnySchedule =
-    session.realRole === "ADMIN" ||
-    (session.realRole === "PJ" && (session.assignedCourseIds?.length || 0) > 0);
+    session.effectiveRole === "ADMIN" ||
+    (session.effectiveRole === "PJ" && (session.assignedCourseIds?.length ?? 0) > 0);
 
   return (
-    <div className="bg-card border rounded-lg p-4 space-y-4 shadow-sm">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3">
-        <div className="flex items-center gap-2">
-          <Calendar className="h-4 w-4 text-primary" />
-          <h2 className="font-semibold text-sm">Jadwal Kuliah Mingguan Kelas 1-B</h2>
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="font-semibold text-base text-foreground flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-primary" />
+            Jadwal Kuliah Mingguan Kelas 1-B
+          </h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Daftar waktu dan ruang perkuliahan reguler tiap hari.
+          </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          {canAddAnySchedule && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setAddScheduleOpen(true)}
-              className="h-7 text-xs gap-1"
-            >
-              <Plus className="h-3 w-3" />
-              Tambah Jadwal
-            </Button>
-          )}
-        </div>
+        {canAddAnySchedule && (
+          <Button
+            size="sm"
+            onClick={() => setAddScheduleOpen(true)}
+            className="h-8 text-xs gap-1.5 font-medium self-start sm:self-auto"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Tambah Jadwal
+          </Button>
+        )}
       </div>
 
-      {/* Tampilan Desktop: Kolom Per Hari */}
-      <div className="hidden md:grid grid-cols-5 lg:grid-cols-5 gap-3 items-start">
+      {/* Tampilan Desktop: 5 Kolom Grid Hari */}
+      <div className="hidden md:grid md:grid-cols-5 gap-3">
         {daysToShow.map((day) => {
-          const isToday = day === currentDayOfWeek;
           const daySchedules = schedules
             .filter((s) => s.dayOfWeek === day)
             .sort((a, b) => a.startMinute - b.startMinute);
+          const isToday = day === currentDayOfWeek;
 
           return (
             <div
@@ -131,18 +153,44 @@ export function WeeklySchedule({ schedules, courses, session }: WeeklySchedulePr
                         <div className="flex items-center justify-between gap-1">
                           <Link
                             href={`/home/materials/${item.courseId}`}
-                            className="font-semibold text-foreground hover:text-primary hover:underline line-clamp-1 text-xs"
+                            className="font-semibold text-foreground hover:text-primary hover:underline line-clamp-1 text-xs flex-1"
                           >
                             {item.course.name}
                           </Link>
                           {canManage && (
-                            <button
-                              onClick={() => handleDeleteSchedule(item.id)}
-                              title="Hapus jadwal"
-                              className="text-muted-foreground hover:text-red-500 transition-colors p-0.5"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger
+                                render={
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 text-muted-foreground hover:text-foreground p-0 shrink-0"
+                                  >
+                                    <MoreVertical className="h-3.5 w-3.5" />
+                                  </Button>
+                                }
+                              />
+                              <DropdownMenuContent align="end" className="text-xs">
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setScheduleForEdit(item);
+                                    setEditScheduleOpen(true);
+                                  }}
+                                  className="gap-2 text-xs"
+                                >
+                                  <Edit3 className="h-3.5 w-3.5 text-primary" />
+                                  Edit Jadwal
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => handleDeleteSchedule(item.id, item.course.name)}
+                                  className="gap-2 text-xs text-red-600 focus:text-red-600"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                  Hapus Jadwal
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           )}
                         </div>
 
@@ -209,22 +257,47 @@ export function WeeklySchedule({ schedules, courses, session }: WeeklySchedulePr
                   key={item.id}
                   className="bg-card border rounded-lg p-3 text-xs space-y-1.5 relative shadow-2xs"
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-1">
                     <Link
                       href={`/home/materials/${item.courseId}`}
-                      className="font-semibold text-sm hover:underline text-primary"
+                      className="font-semibold text-sm hover:underline text-primary flex-1"
                     >
                       {item.course.name}
                     </Link>
                     {canManage && (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => handleDeleteSchedule(item.id)}
-                        className="h-6 w-6 text-muted-foreground hover:text-red-500"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-foreground p-0 shrink-0"
+                            >
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          }
+                        />
+                        <DropdownMenuContent align="end" className="text-xs">
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setScheduleForEdit(item);
+                              setEditScheduleOpen(true);
+                            }}
+                            className="gap-2 text-xs"
+                          >
+                            <Edit3 className="h-3.5 w-3.5 text-primary" />
+                            Edit Jadwal
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => handleDeleteSchedule(item.id, item.course.name)}
+                            className="gap-2 text-xs text-red-600 focus:text-red-600"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Hapus Jadwal
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     )}
                   </div>
 
@@ -262,8 +335,18 @@ export function WeeklySchedule({ schedules, courses, session }: WeeklySchedulePr
       {/* Dialog Tambah Jadwal */}
       <CourseScheduleDialog
         courses={courses}
+        mode="create"
         open={addScheduleOpen}
         onOpenChange={setAddScheduleOpen}
+      />
+
+      {/* Dialog Edit Jadwal */}
+      <CourseScheduleDialog
+        courses={courses}
+        mode="edit"
+        schedule={scheduleForEdit}
+        open={editScheduleOpen}
+        onOpenChange={setEditScheduleOpen}
       />
     </div>
   );
