@@ -65,7 +65,8 @@ export function CourseCardGrid({ courses, members, session }: CourseCardGridProp
   const [selectedCourseForPJ, setSelectedCourseForPJ] = React.useState<CourseWithDetails | null>(null);
   const [pjDialogOpen, setPjDialogOpen] = React.useState(false);
 
-  const isAdmin = session.realRole === "ADMIN";
+  const isAdmin = session.effectiveRole === "ADMIN";
+  const canCreateCourse = session.effectiveRole === "ADMIN" || session.effectiveRole === "PJ";
 
   const handleDeleteCourse = async (courseId: string, courseName: string) => {
     if (!confirm(`Hapus mata kuliah "${courseName}" beserta semua materi, topik, dan jadwal terkait?`)) {
@@ -89,7 +90,7 @@ export function CourseCardGrid({ courses, members, session }: CourseCardGridProp
           </p>
         </div>
 
-        {isAdmin && (
+        {canCreateCourse && (
           <Button
             size="sm"
             onClick={() => setCreateCourseOpen(true)}

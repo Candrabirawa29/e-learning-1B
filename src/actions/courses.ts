@@ -19,8 +19,11 @@ export async function createCourseAction(data: {
   }
   assertCanMutate(session);
 
-  if (session.realRole !== Role.ADMIN) {
-    throw new Error("Akses ditolak: Hanya Admin yang dapat membuat mata kuliah baru.");
+  const canCreate =
+    session.effectiveRole === "ADMIN" || session.effectiveRole === "PJ";
+
+  if (!canCreate) {
+    throw new Error("Akses ditolak: Hanya Admin dan PJ yang dapat membuat mata kuliah baru.");
   }
 
   const parsed = createCourseSchema.parse(data);
@@ -37,6 +40,15 @@ export async function createCourseAction(data: {
       code: parsed.code || null,
       description: parsed.description || null,
       lecturer: parsed.lecturer || null,
+      ...(session.effectiveRole === "PJ"
+        ? {
+            pjs: {
+              create: {
+                userId: session.user.id,
+              },
+            },
+          }
+        : {}),
     },
   });
 
@@ -94,7 +106,7 @@ export async function deleteCourseAction(courseId: string) {
   }
   assertCanMutate(session);
 
-  if (session.realRole !== Role.ADMIN) {
+  if (session.effectiveRole !== "ADMIN") {
     throw new Error("Akses ditolak: Hanya Admin yang dapat menghapus mata kuliah.");
   }
 
@@ -398,7 +410,7 @@ export async function assignCoursePJAction(courseId: string, userIds: string[]) 
   }
   assertCanMutate(session);
 
-  if (session.realRole !== Role.ADMIN) {
+  if (session.effectiveRole !== "ADMIN") {
     throw new Error("Akses ditolak: Hanya Admin yang dapat menetapkan PJ Mata Kuliah.");
   }
 

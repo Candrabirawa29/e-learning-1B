@@ -1,29 +1,31 @@
 import { CurrentUserSession } from "./session";
-import { Role } from "@prisma/client";
 
 /**
- * Centralized permission:
- * Admin = all
- * PJ = only courses in CoursePJ (can edit fellow PJ's content in that course)
- * Content without course = any PJ can manage
+ * Centralized permissions:
+ * - Admin: Full access across all courses and management
+ * - PJ: Can manage courses assigned to them, and general content without a course
+ * - Member: Cannot manage courses, materials, or class tasks
+ * - Guest: Read-only for public materials and tasks
  */
+
+export function canCreateCourse(session: CurrentUserSession): boolean {
+  if (!session.user) return false;
+  return session.effectiveRole === "ADMIN" || session.effectiveRole === "PJ";
+}
+
+export function canDeleteCourse(session: CurrentUserSession): boolean {
+  if (!session.user) return false;
+  return session.effectiveRole === "ADMIN";
+}
+
 export function canManageCourse(
   session: CurrentUserSession,
   courseId?: string | null
 ): boolean {
   if (!session.user) return false;
 
-  if (session.isViewAs) {
-    if (session.effectiveRole === "ADMIN") return true;
-    if (session.effectiveRole === "PJ") {
-      if (!courseId) return true;
-      return session.assignedCourseIds?.includes(courseId) ?? false;
-    }
-    return false;
-  }
-
-  if (session.realRole === Role.ADMIN) return true;
-  if (session.realRole === Role.PJ) {
+  if (session.effectiveRole === "ADMIN") return true;
+  if (session.effectiveRole === "PJ") {
     if (!courseId) return true;
     return session.assignedCourseIds?.includes(courseId) ?? false;
   }
@@ -42,13 +44,6 @@ export function canEditTask(
   task: { courseId?: string | null; createdById?: string },
   session: CurrentUserSession
 ): boolean {
-  if (session.isViewAs) {
-    if (session.effectiveRole === "ADMIN") return true;
-    if (session.effectiveRole === "PJ") {
-      return canManageCourse(session, task.courseId);
-    }
-    return false;
-  }
   return canManageCourse(session, task.courseId);
 }
 
@@ -74,28 +69,26 @@ export function canManageMaterial(
 }
 
 export function canCreateAnnouncement(session: CurrentUserSession): boolean {
-  if (session.isViewAs) {
-    return session.effectiveRole === "ADMIN" || session.effectiveRole === "PJ";
-  }
-  return session.realRole === Role.ADMIN || session.realRole === Role.PJ;
+  if (!session.user) return false;
+  return session.effectiveRole === "ADMIN" || session.effectiveRole === "PJ";
 }
 
 export function canManageAnnouncement(
   announcement: { createdById: string },
   session: CurrentUserSession
 ): boolean {
-  if (session.isViewAs) return false;
-  if (session.realRole === Role.ADMIN) return true;
-  if (session.realRole === Role.PJ && session.user?.id === announcement.createdById) return true;
+  if (!session.user) return false;
+  if (session.effectiveRole === "ADMIN") return true;
+  if (session.effectiveRole === "PJ" && session.user.id === announcement.createdById) return true;
   return false;
 }
 
 export function canManageMembers(session: CurrentUserSession): boolean {
-  if (session.isViewAs) return false;
-  return session.realRole === Role.ADMIN;
+  if (!session.user) return false;
+  return session.effectiveRole === "ADMIN";
 }
 
 export function canViewAuditLog(session: CurrentUserSession): boolean {
-  if (session.isViewAs) return false;
-  return session.realRole === Role.ADMIN;
+  if (!session.user) return false;
+  return session.effectiveRole === "ADMIN";
 }
