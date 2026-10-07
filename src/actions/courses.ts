@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { getCurrentSession, assertCanMutate } from "@/lib/auth/session";
-import { canManageCourse } from "@/lib/auth/rbac";
+import { canManageCourse, canManageTopic } from "@/lib/auth/rbac";
 import { createCourseSchema, courseScheduleSchema, topicSchema } from "@/lib/validations";
 import { Role } from "@prisma/client";
 import { revalidatePath } from "next/cache";
@@ -264,8 +264,8 @@ export async function createTopicAction(data: {
   }
   assertCanMutate(session);
 
-  if (!canManageCourse(session, data.courseId)) {
-    throw new Error("Akses ditolak.");
+  if (!canManageTopic(session, data.courseId)) {
+    throw new Error("Akses ditolak: Anda tidak memiliki izin untuk mengelola sub-topik.");
   }
 
   const parsed = topicSchema.parse(data);
@@ -316,8 +316,8 @@ export async function updateTopicAction(
     throw new Error("Sub-topik tidak ditemukan.");
   }
 
-  if (!canManageCourse(session, topic.courseId)) {
-    throw new Error("Akses ditolak.");
+  if (!canManageTopic(session, topic.courseId)) {
+    throw new Error("Akses ditolak: Anda tidak memiliki izin untuk mengedit sub-topik.");
   }
 
   const parsed = topicSchema.parse({
@@ -355,8 +355,8 @@ export async function deleteTopicAction(topicId: string) {
     throw new Error("Sub-topik tidak ditemukan.");
   }
 
-  if (!canManageCourse(session, topic.courseId)) {
-    throw new Error("Akses ditolak.");
+  if (!canManageTopic(session, topic.courseId)) {
+    throw new Error("Akses ditolak: Anda tidak memiliki izin untuk menghapus sub-topik.");
   }
 
   // Sesuai requirement: menghapus sub-topik memindahkan materi terkait ke "Umum" (topicId: null)
@@ -382,8 +382,8 @@ export async function reorderTopicsAction(courseId: string, orderedTopicIds: str
   }
   assertCanMutate(session);
 
-  if (!canManageCourse(session, courseId)) {
-    throw new Error("Akses ditolak.");
+  if (!canManageTopic(session, courseId)) {
+    throw new Error("Akses ditolak: Anda tidak memiliki izin untuk mengatur urutan sub-topik.");
   }
 
   await prisma.$transaction(

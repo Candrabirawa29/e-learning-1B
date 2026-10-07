@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { CurrentUserSession } from "@/lib/auth/session";
+import { canManageMaterial } from "@/lib/auth/rbac";
 import { formatDateIndo } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import { deleteMaterialAction } from "@/actions/materials";
@@ -23,12 +24,14 @@ import {
   Link as LinkIcon,
   Download,
   Trash2,
+  Edit,
   Search,
   ExternalLink,
   BookOpen,
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { EditMaterialDialog } from "./EditMaterialDialog";
 
 export interface MaterialItem {
   id: string;
@@ -52,7 +55,7 @@ export interface MaterialItem {
 
 interface MaterialListProps {
   materials: MaterialItem[];
-  courses: { id: string; name: string }[];
+  courses: { id: string; name: string; topics?: { id: string; title: string }[] }[];
   session: CurrentUserSession;
 }
 
@@ -61,6 +64,7 @@ export function MaterialList({ materials, courses, session }: MaterialListProps)
   const [selectedCourse, setSelectedCourse] = React.useState<string>("all");
   const [selectedType, setSelectedType] = React.useState<string>("all");
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
+  const [editingMaterial, setEditingMaterial] = React.useState<MaterialItem | null>(null);
 
   const filteredMaterials = React.useMemo(() => {
     return materials.filter((m) => {
@@ -168,11 +172,7 @@ export function MaterialList({ materials, courses, session }: MaterialListProps)
           </div>
         ) : (
           filteredMaterials.map((mat) => {
-            const canManage =
-              !session.isViewAs &&
-              (session.realRole === "ADMIN" ||
-                (session.realRole === "PJ" && session.user?.id === mat.uploadedById));
-
+            const canManage = canManageMaterial(mat, session);
             const targetUrl = mat.downloadUrl || mat.externalUrl || "#";
 
             return (
@@ -247,20 +247,34 @@ export function MaterialList({ materials, courses, session }: MaterialListProps)
                     )}
 
                     {canManage && (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => handleDelete(mat.id, mat.title)}
-                        disabled={deletingId === mat.id}
-                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                      >
-                        {deletingId === mat.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-3.5 w-3.5" />
-                        )}
-                        <span className="sr-only">Hapus materi</span>
-                      </Button>
+                      <div className="flex items-center gap-0.5">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => setEditingMaterial(mat)}
+                          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                          title="Edit materi"
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                          <span className="sr-only">Edit materi</span>
+                        </Button>
+
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => handleDelete(mat.id, mat.title)}
+                          disabled={deletingId === mat.id}
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          title="Hapus materi"
+                        >
+                          {deletingId === mat.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
+                          <span className="sr-only">Hapus materi</span>
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </CardContent>
@@ -269,6 +283,17 @@ export function MaterialList({ materials, courses, session }: MaterialListProps)
           })
         )}
       </div>
+
+      <EditMaterialDialog
+        material={editingMaterial}
+        topics={
+          editingMaterial
+            ? courses.find((c) => c.id === editingMaterial.courseId)?.topics || []
+            : []
+        }
+        open={!!editingMaterial}
+        onOpenChange={(open) => !open && setEditingMaterial(null)}
+      />
     </div>
   );
 }

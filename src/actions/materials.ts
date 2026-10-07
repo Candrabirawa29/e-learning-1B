@@ -46,7 +46,7 @@ export async function createMaterialAction(data: {
   assertCanMutate(session);
 
   if (!canUploadMaterial(session, data.courseId)) {
-    throw new Error("Akses ditolak: Hanya PJ atau Admin yang dapat menambahkan materi di mata kuliah ini.");
+    throw new Error("Akses ditolak: Anda tidak memiliki izin untuk menambahkan materi.");
   }
 
   const parsed = createMaterialSchema.parse(data);
@@ -82,8 +82,11 @@ export async function createMaterialAction(data: {
     metadata: {
       title: material.title,
       courseId: material.courseId,
+      topicId: material.topicId,
       fileName: material.fileName,
       provider: material.provider,
+      actorName: session.profile.name || session.profile.email,
+      actorRole: session.effectiveRole,
     },
   });
 
@@ -93,6 +96,84 @@ export async function createMaterialAction(data: {
   revalidatePath("/");
 
   return { success: true, materialId: material.id };
+}
+
+export async function updateMaterialAction(
+  materialId: string,
+  data: {
+    title: string;
+    description?: string | null;
+    topicId?: string | null;
+    materialType?: MaterialType;
+    externalUrl?: string | null;
+    visibility?: MaterialVisibility;
+  }
+) {
+  const session = await getCurrentSession();
+  if (!session.user || !session.profile) {
+    throw new Error("Anda harus login.");
+  }
+  assertCanMutate(session);
+
+  const existing = await prisma.material.findUnique({
+    where: { id: materialId },
+  });
+  if (!existing) {
+    throw new Error("Materi tidak ditemukan.");
+  }
+
+  if (!canManageMaterial(existing, session)) {
+    throw new Error("Akses ditolak: Anda tidak memiliki izin untuk mengedit materi ini.");
+  }
+
+  const updated = await prisma.material.update({
+    where: { id: materialId },
+    data: {
+      title: data.title.trim(),
+      description:
+        data.description !== undefined
+          ? data.description
+            ? data.description.trim()
+            : null
+          : existing.description,
+      topicId:
+        data.topicId !== undefined
+          ? data.topicId === "none" || !data.topicId
+            ? null
+            : data.topicId
+          : existing.topicId,
+      materialType: data.materialType || existing.materialType,
+      externalUrl:
+        data.externalUrl !== undefined
+          ? data.externalUrl
+            ? data.externalUrl.trim()
+            : null
+          : existing.externalUrl,
+      visibility: data.visibility || existing.visibility,
+    },
+  });
+
+  await logActivity({
+    actorId: session.profile.id,
+    action: ActivityAction.MATERIAL_UPLOADED,
+    entityType: "Material",
+    entityId: updated.id,
+    metadata: {
+      actionType: "MATERIAL_UPDATED",
+      title: updated.title,
+      courseId: updated.courseId,
+      topicId: updated.topicId,
+      actorName: session.profile.name || session.profile.email,
+      actorRole: session.effectiveRole,
+    },
+  });
+
+  revalidatePath("/home/materials");
+  revalidatePath(`/home/materials/${updated.courseId}`);
+  revalidatePath("/materials");
+  revalidatePath("/");
+
+  return { success: true };
 }
 
 export async function deleteMaterialAction(materialId: string) {
@@ -132,7 +213,12 @@ export async function deleteMaterialAction(materialId: string) {
     action: ActivityAction.MATERIAL_DELETED,
     entityType: "Material",
     entityId: materialId,
-    metadata: { title: material.title, courseId: material.courseId },
+    metadata: {
+      title: material.title,
+      courseId: material.courseId,
+      actorName: session.profile.name || session.profile.email,
+      actorRole: session.effectiveRole,
+    },
   });
 
   revalidatePath("/home/materials");

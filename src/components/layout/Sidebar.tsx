@@ -42,6 +42,11 @@ export function SidebarNav({ session, isMobile = false }: SidebarNavProps) {
     { href: "/home/profile", label: "Profil & Akun", icon: User },
   ];
 
+  const memberManagementLinks = [
+    { href: "/home/manage/tasks", label: "Kelola Tugas", icon: CheckSquare },
+    { href: "/home/manage/materials", label: "Kelola Materi", icon: BookOpen },
+  ];
+
   const pjManagementLinks = [
     { href: "/home/manage/tasks", label: "Kelola Tugas", icon: CheckSquare },
     { href: "/home/manage/materials", label: "Kelola Materi", icon: BookOpen },
@@ -54,7 +59,13 @@ export function SidebarNav({ session, isMobile = false }: SidebarNavProps) {
     { href: "/home/manage/audit", label: "Log Aktivitas & Audit", icon: ShieldCheck },
   ];
 
-  const managementLinks = isAdmin ? adminManagementLinks : isPJ ? pjManagementLinks : [];
+  const managementLinks = isAdmin
+    ? adminManagementLinks
+    : isPJ
+    ? pjManagementLinks
+    : role === "MEMBER"
+    ? memberManagementLinks
+    : [];
 
   return (
     <nav className={cn("space-y-6 sticky text-xs", isMobile ? "px-1" : "py-4")}>

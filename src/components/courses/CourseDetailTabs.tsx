@@ -2,11 +2,17 @@
 
 import * as React from "react";
 import { CurrentUserSession } from "@/lib/auth/session";
-import { canManageCourse, canCreateTask } from "@/lib/auth/rbac";
+import {
+  canCreateTask,
+  canUploadMaterial,
+  canManageMaterial,
+  canManageTopic,
+} from "@/lib/auth/rbac";
 import { deleteTopicAction, reorderTopicsAction } from "@/actions/courses";
 import { deleteMaterialAction } from "@/actions/materials";
 import { TopicDialog } from "./TopicDialog";
 import { UploadMaterialDialog } from "@/components/materials/UploadMaterialDialog";
+import { EditMaterialDialog } from "@/components/materials/EditMaterialDialog";
 import { TaskFormDialog } from "@/components/tasks/TaskFormDialog";
 import { TaskList } from "@/components/tasks/TaskList";
 import { TaskDetailData } from "@/components/tasks/TaskDetailModal";
@@ -99,8 +105,10 @@ export function CourseDetailTabs({
 
   const [createTaskOpen, setCreateTaskOpen] = React.useState(false);
   const [isReordering, setIsReordering] = React.useState(false);
+  const [editingMaterial, setEditingMaterial] = React.useState<MaterialItem | null>(null);
 
-  const canManage = canManageCourse(session, course.id);
+  const canUploadMat = canUploadMaterial(session, course.id);
+  const canManageTopics = canManageTopic(session, course.id);
 
   const toggleTopic = (id: string) => {
     setExpandedTopics((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -182,32 +190,36 @@ export function CourseDetailTabs({
             </TabsTrigger>
           </TabsList>
 
-          {canManage && (
+          {(canManageTopics || canUploadMat) && (
             <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setSelectedTopicForEdit(null);
-                  setTopicDialogOpen(true);
-                }}
-                className="h-8 text-xs gap-1.5"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Tambah Sub-Topik
-              </Button>
+              {canManageTopics && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setSelectedTopicForEdit(null);
+                    setTopicDialogOpen(true);
+                  }}
+                  className="h-8 text-xs gap-1.5"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Tambah Sub-Topik
+                </Button>
+              )}
 
-              <Button
-                size="sm"
-                onClick={() => {
-                  setSelectedTopicForUpload(undefined);
-                  setUploadDialogOpen(true);
-                }}
-                className="h-8 text-xs gap-1.5 font-medium"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Unggah Materi
-              </Button>
+              {canUploadMat && (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setSelectedTopicForUpload(undefined);
+                    setUploadDialogOpen(true);
+                  }}
+                  className="h-8 text-xs gap-1.5 font-medium"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Unggah Materi
+                </Button>
+              )}
             </div>
           )}
         </div>
@@ -217,7 +229,7 @@ export function CourseDetailTabs({
           {topics.length === 0 && generalMaterials.length === 0 ? (
             <div className="p-12 text-center border rounded-lg bg-card text-muted-foreground text-xs space-y-2">
               <p>Belum ada materi perkuliahan untuk mata kuliah ini.</p>
-              {canManage && (
+              {canUploadMat && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -266,7 +278,7 @@ export function CourseDetailTabs({
                         </div>
                       </div>
 
-                      {canManage && (
+                      {canManageTopics && (
                         <div className="flex items-center gap-1">
                           <Button
                             size="icon"
@@ -325,7 +337,8 @@ export function CourseDetailTabs({
                             <MaterialCard
                               key={m.id}
                               material={m}
-                              canManage={canManage}
+                              canManage={canManageMaterial(m, session)}
+                              onEdit={(mat) => setEditingMaterial(mat)}
                               onDelete={handleDeleteMaterial}
                               formatFileSize={formatFileSize}
                             />
@@ -369,7 +382,8 @@ export function CourseDetailTabs({
                         <MaterialCard
                           key={m.id}
                           material={m}
-                          canManage={canManage}
+                          canManage={canManageMaterial(m, session)}
+                          onEdit={(mat) => setEditingMaterial(mat)}
                           onDelete={handleDeleteMaterial}
                           formatFileSize={formatFileSize}
                         />
@@ -410,25 +424,34 @@ export function CourseDetailTabs({
       </Tabs>
 
       {/* Dialogs */}
-      {canManage && (
-        <>
-          <TopicDialog
-            courseId={course.id}
-            mode={selectedTopicForEdit ? "edit" : "create"}
-            topic={selectedTopicForEdit}
-            open={topicDialogOpen}
-            onOpenChange={setTopicDialogOpen}
-          />
-
-          <UploadMaterialDialog
-            courses={[{ id: course.id, name: course.name, topics }]}
-            defaultCourseId={course.id}
-            defaultTopicId={selectedTopicForUpload}
-            open={uploadDialogOpen}
-            onOpenChange={setUploadDialogOpen}
-          />
-        </>
+      {canManageTopics && (
+        <TopicDialog
+          courseId={course.id}
+          mode={selectedTopicForEdit ? "edit" : "create"}
+          topic={selectedTopicForEdit}
+          open={topicDialogOpen}
+          onOpenChange={setTopicDialogOpen}
+        />
       )}
+
+      {canUploadMat && (
+        <UploadMaterialDialog
+          courses={[{ id: course.id, name: course.name, topics }]}
+          defaultCourseId={course.id}
+          defaultTopicId={selectedTopicForUpload}
+          open={uploadDialogOpen}
+          onOpenChange={setUploadDialogOpen}
+        />
+      )}
+
+      <EditMaterialDialog
+        material={editingMaterial}
+        topics={topics}
+        open={!!editingMaterial}
+        onOpenChange={(open) => {
+          if (!open) setEditingMaterial(null);
+        }}
+      />
 
       {canCreateTask(session) && (
         <TaskFormDialog
@@ -446,11 +469,13 @@ export function CourseDetailTabs({
 function MaterialCard({
   material,
   canManage,
+  onEdit,
   onDelete,
   formatFileSize,
 }: {
   material: MaterialItem;
   canManage: boolean;
+  onEdit: (material: MaterialItem) => void;
   onDelete: (id: string, title: string) => void;
   formatFileSize: (bytes?: number | null) => string | null;
 }) {
@@ -509,14 +534,26 @@ function MaterialCard({
         </a>
 
         {canManage && (
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={() => onDelete(material.id, material.title)}
-            className="h-7 w-7 text-muted-foreground hover:text-red-500"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
+          <>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => onEdit(material)}
+              title="Edit materi"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            >
+              <Edit className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => onDelete(material.id, material.title)}
+              title="Hapus materi"
+              className="h-7 w-7 text-muted-foreground hover:text-red-500"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </>
         )}
       </div>
     </div>

@@ -76,14 +76,39 @@ export function canUploadMaterial(
   session: CurrentUserSession,
   courseId?: string | null
 ): boolean {
-  return canManageCourse(session, courseId);
+  void courseId;
+  if (!session.user) return false;
+  return (
+    session.effectiveRole === "ADMIN" ||
+    session.effectiveRole === "PJ" ||
+    session.effectiveRole === "MEMBER"
+  );
 }
 
 export function canManageMaterial(
   material: { courseId?: string | null; uploadedById?: string },
   session: CurrentUserSession
 ): boolean {
-  return canManageCourse(session, material.courseId);
+  void material;
+  if (!session.user) return false;
+  return (
+    session.effectiveRole === "ADMIN" ||
+    session.effectiveRole === "PJ" ||
+    session.effectiveRole === "MEMBER"
+  );
+}
+
+export function canManageTopic(
+  session: CurrentUserSession,
+  courseId?: string | null
+): boolean {
+  void courseId;
+  if (!session.user) return false;
+  return (
+    session.effectiveRole === "ADMIN" ||
+    session.effectiveRole === "PJ" ||
+    session.effectiveRole === "MEMBER"
+  );
 }
 
 export function canCreateAnnouncement(session: CurrentUserSession): boolean {

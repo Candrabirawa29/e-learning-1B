@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { requirePJOrAdmin } from "@/lib/auth/session";
+import { requireUser } from "@/lib/auth/session";
 import { MaterialList } from "@/components/materials/MaterialList";
 import { UploadMaterialDialog } from "@/components/materials/UploadMaterialDialog";
 import { getStorageFileUrl } from "@/lib/supabase/storage";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function ManageMaterialsPage() {
   const [session, class1B] = await Promise.all([
-    requirePJOrAdmin(),
+    requireUser(),
     prisma.class.findUnique({ where: { code: "1-B" } }),
   ]);
   if (!class1B) return null;
@@ -59,7 +59,9 @@ export default async function ManageMaterialsPage() {
           </p>
         </div>
 
-        <UploadMaterialDialog courses={courses} />
+        {session.effectiveRole !== "GUEST" && (
+          <UploadMaterialDialog courses={courses} />
+        )}
       </div>
 
       <MaterialList
