@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { CurrentUserSession } from "@/lib/auth/session";
-import { canManageCourse } from "@/lib/auth/rbac";
+import { canManageCourse, canCreateTask } from "@/lib/auth/rbac";
 import { deleteTopicAction, reorderTopicsAction } from "@/actions/courses";
 import { deleteMaterialAction } from "@/actions/materials";
 import { TopicDialog } from "./TopicDialog";
@@ -388,7 +388,7 @@ export function CourseDetailTabs({
             <h3 className="text-xs font-semibold text-muted-foreground">
               Daftar Tugas Mata Kuliah {course.name}
             </h3>
-            {canManage && (
+            {canCreateTask(session) && (
               <Button
                 size="sm"
                 onClick={() => setCreateTaskOpen(true)}
@@ -427,15 +427,17 @@ export function CourseDetailTabs({
             open={uploadDialogOpen}
             onOpenChange={setUploadDialogOpen}
           />
-
-          <TaskFormDialog
-            mode="create"
-            courses={[{ id: course.id, name: course.name, code: course.code }]}
-            members={members}
-            open={createTaskOpen}
-            onOpenChange={setCreateTaskOpen}
-          />
         </>
+      )}
+
+      {canCreateTask(session) && (
+        <TaskFormDialog
+          mode="create"
+          courses={[{ id: course.id, name: course.name, code: course.code }]}
+          members={members}
+          open={createTaskOpen}
+          onOpenChange={setCreateTaskOpen}
+        />
       )}
     </div>
   );

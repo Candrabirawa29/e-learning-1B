@@ -3,7 +3,7 @@
 import * as React from "react";
 import { updateTaskProgressAction, deleteTaskAction } from "@/actions/tasks";
 import { CurrentUserSession } from "@/lib/auth/session";
-import { canManageCourse } from "@/lib/auth/rbac";
+import { canEditTask, canDeleteTask } from "@/lib/auth/rbac";
 import { formatDateTimeIndo, formatRelativeDeadline } from "@/lib/date";
 import { Button } from "@/components/ui/button";
 import {
@@ -144,17 +144,12 @@ function TaskDetailContent({
   const deadlineInfo = formatRelativeDeadline(task.deadline);
   const isGuest = session.effectiveRole === "GUEST" || !session.user;
 
-  // Izin kelola tugas menggunakan canManageCourse
-  const canManage = canManageCourse(session, task.course?.id || task.courseId);
+  // Izin kelola tugas (Edit & Hapus) untuk Member, PJ, dan Admin
+  const canManage = canEditTask(task, session);
+  const canDelete = canDeleteTask(task, session);
 
-  // Aturan privasi penerima tugas spesifik:
-  // Hanya Admin, PJ mata kuliah ini, dan penerima tugas yang dapat melihat nama-nama mahasiswa yang ditugaskan.
-  // Pengguna lain hanya melihat "Ditugaskan ke N mahasiswa"
-  const canSeeSpecificRecipientNames =
-    session.realRole === "ADMIN" ||
-    (session.realRole === "PJ" &&
-      (!task.course?.id || session.assignedCourseIds?.includes(task.course.id))) ||
-    task.assignments.some((a) => a.profile.id === session.profile?.id);
+  // Seluruh anggota kelas (bukan Guest) dapat melihat mahasiswa yang ditugaskan
+  const canSeeSpecificRecipientNames = !isGuest;
 
   // Hitung aggregate statistik untuk PJ/Admin
   const totalSubmissions = task.progresses.length;
@@ -390,8 +385,8 @@ function TaskDetailContent({
           </div>
         )}
 
-        {/* Section: Aggregate Stats untuk PJ/Admin */}
-        {(session.realRole === "ADMIN" || session.realRole === "PJ") && (
+        {/* Section: Aggregate Stats untuk Kelas */}
+        {!isGuest && (
           <div className="p-3 border rounded-md bg-muted/10 space-y-2">
             <span className="font-semibold text-xs block text-muted-foreground">
               Ringkasan Pengerjaan Kelas
@@ -417,59 +412,59 @@ function TaskDetailContent({
       <DialogFooter className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-3 border-t">
         <div className="flex items-center gap-2">
           {canManage && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setEditDialogOpen(true)}
-                className="text-xs h-8 gap-1.5"
-              >
-                <Edit className="h-3.5 w-3.5" />
-                Edit Tugas
-              </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setEditDialogOpen(true)}
+              className="text-xs h-8 gap-1.5"
+            >
+              <Edit className="h-3.5 w-3.5" />
+              Edit Tugas
+            </Button>
+          )}
 
-              <AlertDialog>
-                <AlertDialogTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={isDeleting}
-                      className="text-xs h-8 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/50 border-red-200 dark:border-red-900 gap-1.5"
-                    >
-                      {isDeleting ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-3.5 w-3.5" />
-                      )}
-                      Hapus
-                    </Button>
-                  }
-                />
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle className="flex items-center gap-2 text-red-600 dark:text-red-400">
-                      <AlertTriangle className="h-5 w-5" />
-                      Hapus Tugas Secara Permanen?
-                    </AlertDialogTitle>
-                    <AlertDialogDescription className="text-xs text-muted-foreground leading-relaxed">
-                      Menghapus tugas <strong>&quot;{task.title}&quot;</strong> akan menghapus seluruh data
-                      riwayat progres pengerjaan mahasiswa dan penugasan terkait secara permanen.
-                      Tindakan ini tidak dapat dibatalkan.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel className="text-xs h-8">Batal</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={handleDeleteTask}
-                      className="text-xs h-8 bg-red-600 hover:bg-red-700 text-white"
-                    >
-                      Hapus Tugas
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </>
+          {canDelete && (
+            <AlertDialog>
+              <AlertDialogTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={isDeleting}
+                    className="text-xs h-8 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/50 border-red-200 dark:border-red-900 gap-1.5"
+                  >
+                    {isDeleting ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    )}
+                    Hapus
+                  </Button>
+                }
+              />
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="flex items-center gap-2 text-red-600 dark:text-red-400">
+                    <AlertTriangle className="h-5 w-5" />
+                    Hapus Tugas Secara Permanen?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription className="text-xs text-muted-foreground leading-relaxed">
+                    Menghapus tugas <strong>&quot;{task.title}&quot;</strong> akan menghapus seluruh data
+                    riwayat progres pengerjaan mahasiswa dan penugasan terkait secara permanen.
+                    Tindakan ini tidak dapat dibatalkan.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel className="text-xs h-8">Batal</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleDeleteTask}
+                    className="text-xs h-8 bg-red-600 hover:bg-red-700 text-white"
+                  >
+                    Hapus Tugas
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
         </div>
 

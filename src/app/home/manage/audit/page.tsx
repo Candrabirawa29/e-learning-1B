@@ -1,80 +1,163 @@
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth/session";
-import { formatDateTimeIndo } from "@/lib/date";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { AuditLogClient } from "@/components/audit/AuditLogClient";
+import { ActivityAction, Prisma } from "@prisma/client";
+
 export const dynamic = "force-dynamic";
 
-export default async function AuditPage() {
+export default async function AuditPage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    q?: string;
+    actor?: string;
+    action?: string;
+    entityType?: string;
+    startDate?: string;
+    endDate?: string;
+    page?: string;
+  }>;
+}) {
   await requireAdmin();
 
-  const logs = await prisma.activityLog.findMany({
-    take: 100,
-    orderBy: { createdAt: "desc" },
-    include: { actor: true },
-  });
+  const params = await searchParams;
+  const q = params.q?.trim() || "";
+  const actor = params.actor || "all";
+  const action = params.action || "all";
+  const entityType = params.entityType || "all";
+  const startDate = params.startDate || "";
+  const endDate = params.endDate || "";
+  const page = Math.max(1, parseInt(params.page || "1", 10) || 1);
+  const pageSize = 25;
+  const skip = (page - 1) * pageSize;
+
+  const where: Prisma.ActivityLogWhereInput = {};
+
+  if (actor !== "all") {
+    where.actorId = actor;
+  }
+
+  if (
+    action !== "all" &&
+    Object.values(ActivityAction).includes(action as ActivityAction)
+  ) {
+    where.action = action as ActivityAction;
+  }
+
+  if (entityType !== "all") {
+    where.entityType = {
+      equals: entityType,
+      mode: "insensitive",
+    };
+  }
+
+  if (startDate || endDate) {
+    where.createdAt = {};
+    if (startDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      where.createdAt.gte = start;
+    }
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      where.createdAt.lte = end;
+    }
+  }
+
+  if (q) {
+    const matchingActions = Object.values(ActivityAction).filter((act) =>
+      act.toLowerCase().includes(q.toLowerCase())
+    );
+
+    where.AND = [
+      ...(where.AND ? (Array.isArray(where.AND) ? where.AND : [where.AND]) : []),
+      {
+        OR: [
+          { actor: { name: { contains: q, mode: "insensitive" } } },
+          { actor: { email: { contains: q, mode: "insensitive" } } },
+          { entityType: { contains: q, mode: "insensitive" } },
+          { metadata: { contains: q, mode: "insensitive" } },
+          ...(matchingActions.length > 0 ? [{ action: { in: matchingActions } }] : []),
+        ],
+      },
+    ];
+  }
+
+  const [logs, totalCount, actors, distinctEntityTypes] = await Promise.all([
+    prisma.activityLog.findMany({
+      where,
+      take: pageSize,
+      skip,
+      orderBy: { createdAt: "desc" },
+      include: {
+        actor: {
+          select: { id: true, name: true, email: true, avatarUrl: true },
+        },
+      },
+    }),
+    prisma.activityLog.count({ where }),
+    prisma.profile.findMany({
+      where: {
+        activityLogs: { some: {} },
+      },
+      select: { id: true, name: true, email: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.activityLog.findMany({
+      select: { entityType: true },
+      distinct: ["entityType"],
+      orderBy: { entityType: "asc" },
+    }),
+  ]);
+
+  const allActions = Object.values(ActivityAction);
+  const allEntityTypes = Array.from(
+    new Set([
+      "Task",
+      "Material",
+      "User",
+      "Assignment",
+      "Announcement",
+      ...distinctEntityTypes.map((e) => e.entityType).filter(Boolean),
+    ])
+  ).sort();
 
   return (
     <div className="space-y-6">
       <div className="border-b pb-4">
         <div className="flex items-center gap-2">
           <h1 className="text-xl font-bold tracking-tight">Log Aktivitas & Audit Sistem</h1>
-          <Badge variant="outline" className="text-[10px] bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300 border-red-300">
+          <Badge
+            variant="outline"
+            className="text-[10px] bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300 border-red-300"
+          >
             Admin Only
           </Badge>
         </div>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Rekam jejak seluruh mutasi penting: pembuatan tugas, upload materi, perubahan role, pengumpulan tugas, dan reset password.
+          Rekam jejak seluruh mutasi penting: pembuatan dan perubahan tugas, upload materi, perubahan role, pengumpulan tugas, dan aktivitas sistem.
         </p>
       </div>
 
-      <div className="border rounded-lg bg-card overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/50 text-[11px]">
-              <TableHead className="w-[20%]">Waktu</TableHead>
-              <TableHead className="w-[20%]">Pengguna (Aktor)</TableHead>
-              <TableHead className="w-[20%]">Aksi</TableHead>
-              <TableHead className="w-[15%]">Tipe Entitas</TableHead>
-              <TableHead className="w-[25%]">Detail / Metadata</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {logs.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="h-32 text-center text-xs text-muted-foreground">
-                  Belum ada log aktivitas yang tercatat.
-                </TableCell>
-              </TableRow>
-            ) : (
-              logs.map((log) => (
-                <TableRow key={log.id} className="text-xs">
-                  <TableCell className="text-muted-foreground text-[11px] whitespace-nowrap">
-                    {formatDateTimeIndo(log.createdAt)}
-                  </TableCell>
-                  <TableCell>
-                    <div className="font-medium text-foreground">
-                      {log.actor?.name || log.actor?.email?.split("@")[0] || "Sistem"}
-                    </div>
-                    {log.actor?.email && (
-                      <div className="text-[11px] text-muted-foreground">{log.actor.email}</div>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="text-[10px] uppercase font-semibold">
-                      {log.action.replace(/_/g, " ")}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{log.entityType}</TableCell>
-                  <TableCell className="font-mono text-[11px] text-muted-foreground max-w-xs truncate">
-                    {log.metadata || "-"}
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      <AuditLogClient
+        logs={logs}
+        totalCount={totalCount}
+        page={page}
+        pageSize={pageSize}
+        actors={actors}
+        actions={allActions}
+        entityTypes={allEntityTypes}
+        currentFilters={{
+          q,
+          actor,
+          action,
+          entityType,
+          startDate,
+          endDate,
+        }}
+      />
     </div>
   );
 }

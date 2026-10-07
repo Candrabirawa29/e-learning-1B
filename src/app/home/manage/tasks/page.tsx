@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { requirePJOrAdmin } from "@/lib/auth/session";
+import { requireUser } from "@/lib/auth/session";
 import { TaskList } from "@/components/tasks/TaskList";
 import { CreateTaskDialog } from "@/components/tasks/CreateTaskDialog";
 
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export default async function ManageTasksPage() {
   const [session, class1B] = await Promise.all([
-    requirePJOrAdmin(),
+    requireUser(),
     prisma.class.findUnique({ where: { code: "1-B" } }),
   ]);
   if (!class1B) return null;

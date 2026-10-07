@@ -26,7 +26,7 @@ export async function createTaskAction(data: {
   assertCanMutate(session);
 
   if (!canCreateTask(session, data.courseId)) {
-    throw new Error("Akses ditolak: Anda tidak memiliki izin untuk membuat tugas pada mata kuliah ini.");
+    throw new Error("Akses ditolak: Anda tidak memiliki izin untuk membuat tugas.");
   }
 
   const parsed = createTaskSchema.parse(data);
@@ -68,7 +68,11 @@ export async function createTaskAction(data: {
     metadata: {
       title: task.title,
       targetType: task.targetType,
+      priority: task.priority,
+      courseId: task.courseId,
       assignedCount: parsed.targetType === TaskTargetType.SPECIFIC ? parsed.assignees?.length : "ALL",
+      actorName: session.profile.name || session.profile.email,
+      actorRole: session.effectiveRole,
     },
   });
 
@@ -155,7 +159,14 @@ export async function updateTaskAction(
     action: ActivityAction.TASK_UPDATED,
     entityType: "Task",
     entityId: updated.id,
-    metadata: { title: updated.title, targetType: updated.targetType },
+    metadata: {
+      title: updated.title,
+      targetType: updated.targetType,
+      priority: updated.priority,
+      courseId: updated.courseId,
+      actorName: session.profile.name || session.profile.email,
+      actorRole: session.effectiveRole,
+    },
   });
 
   revalidatePath("/home/tasks");
@@ -194,7 +205,12 @@ export async function deleteTaskAction(taskId: string) {
     action: ActivityAction.TASK_DELETED,
     entityType: "Task",
     entityId: taskId,
-    metadata: { title: existingTask.title },
+    metadata: {
+      title: existingTask.title,
+      courseId: existingTask.courseId,
+      actorName: session.profile.name || session.profile.email,
+      actorRole: session.effectiveRole,
+    },
   });
 
   revalidatePath("/home/tasks");
@@ -247,12 +263,16 @@ export async function updateTaskProgressAction(
     throw new Error("Tugas tidak ditemukan.");
   }
 
-  // Jika tugas ditujukan ke SPECIFIC dan user bukan assignee serta bukan admin/creator:
+  // Jika tugas ditujukan ke SPECIFIC dan user bukan assignee serta bukan admin/pj/creator:
+  const isPrivileged =
+    session.effectiveRole === "ADMIN" ||
+    session.effectiveRole === "PJ" ||
+    task.createdById === session.profile.id;
+
   if (
     task.targetType === TaskTargetType.SPECIFIC &&
     task.assignments.length === 0 &&
-    session.realRole !== "ADMIN" &&
-    task.createdById !== session.profile.id
+    !isPrivileged
   ) {
     throw new Error("Tugas ini tidak ditugaskan kepada Anda.");
   }

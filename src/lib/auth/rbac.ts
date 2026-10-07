@@ -37,21 +37,39 @@ export function canCreateTask(
   session: CurrentUserSession,
   courseId?: string | null
 ): boolean {
-  return canManageCourse(session, courseId);
+  void courseId;
+  if (!session.user) return false;
+  return (
+    session.effectiveRole === "ADMIN" ||
+    session.effectiveRole === "PJ" ||
+    session.effectiveRole === "MEMBER"
+  );
 }
 
 export function canEditTask(
   task: { courseId?: string | null; createdById?: string },
   session: CurrentUserSession
 ): boolean {
-  return canManageCourse(session, task.courseId);
+  void task;
+  if (!session.user) return false;
+  return (
+    session.effectiveRole === "ADMIN" ||
+    session.effectiveRole === "PJ" ||
+    session.effectiveRole === "MEMBER"
+  );
 }
 
 export function canDeleteTask(
   task: { courseId?: string | null; createdById?: string },
   session: CurrentUserSession
 ): boolean {
-  return canEditTask(task, session);
+  void task;
+  if (!session.user) return false;
+  return (
+    session.effectiveRole === "ADMIN" ||
+    session.effectiveRole === "PJ" ||
+    session.effectiveRole === "MEMBER"
+  );
 }
 
 export function canUploadMaterial(
