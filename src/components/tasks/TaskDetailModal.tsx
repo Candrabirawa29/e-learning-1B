@@ -49,6 +49,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { TaskFormDialog } from "./TaskFormDialog";
+import { TaskMemberTrackerModal } from "./TaskMemberTrackerModal";
+import { calculateTaskProgressSummary } from "@/lib/tasks/progress";
 
 export interface TaskDetailData {
   id: string;
@@ -70,6 +72,7 @@ export interface TaskDetailData {
     status: TaskStatus;
     progress: number;
     notes: string | null;
+    updatedAt?: Date | string | null;
     profile?: { name: string | null; email: string };
   }[];
 }
@@ -125,6 +128,7 @@ function TaskDetailContent({
   const [isUpdatingProgress, setIsUpdatingProgress] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [editDialogOpen, setEditDialogOpen] = React.useState(false);
+  const [trackerOpen, setTrackerOpen] = React.useState(false);
 
   // Ambil personal progress user saat ini
   const myProgressRecord = React.useMemo(() => {
@@ -151,14 +155,8 @@ function TaskDetailContent({
   // Seluruh anggota kelas (bukan Guest) dapat melihat mahasiswa yang ditugaskan
   const canSeeSpecificRecipientNames = !isGuest;
 
-  // Hitung aggregate statistik untuk PJ/Admin
-  const totalSubmissions = task.progresses.length;
-  const doneCount = task.progresses.filter((p) => p.status === TaskStatus.DONE).length;
-  const inProgressCount = task.progresses.filter((p) => p.status === TaskStatus.IN_PROGRESS).length;
-  const averageProgress =
-    totalSubmissions > 0
-      ? Math.round(task.progresses.reduce((acc, curr) => acc + curr.progress, 0) / totalSubmissions)
-      : 0;
+  // Ringkasan progres seluruh anggota kelas untuk tugas ini
+  const summary = calculateTaskProgressSummary(task, members);
 
   const priorityColor = {
     LOW: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
@@ -385,26 +383,82 @@ function TaskDetailContent({
           </div>
         )}
 
-        {/* Section: Aggregate Stats untuk Kelas */}
+        {/* Section: Aggregate Stats untuk Seluruh Kelas */}
         {!isGuest && (
-          <div className="p-3 border rounded-md bg-muted/10 space-y-2">
-            <span className="font-semibold text-xs block text-muted-foreground">
-              Ringkasan Pengerjaan Kelas
-            </span>
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="p-2 bg-muted/40 rounded border">
-                <div className="text-lg font-bold">{doneCount}</div>
+          <div className="p-3.5 border rounded-lg bg-card space-y-3">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-semibold flex items-center gap-1.5 text-foreground">
+                <Users className="h-4 w-4 text-primary" />
+                Ringkasan Pengerjaan Kelas ({summary.totalRecipients} Mahasiswa)
+              </span>
+              <span className="font-bold text-primary">{summary.completionPercentage}% Selesai</span>
+            </div>
+
+            {/* Segmented bar */}
+            <div className="h-2 w-full bg-muted rounded-full overflow-hidden flex">
+              {summary.doneCount > 0 && (
+                <div
+                  style={{ width: `${(summary.doneCount / summary.totalRecipients) * 100}%` }}
+                  className="bg-emerald-500 h-full"
+                />
+              )}
+              {summary.reviewCount > 0 && (
+                <div
+                  style={{ width: `${(summary.reviewCount / summary.totalRecipients) * 100}%` }}
+                  className="bg-purple-500 h-full"
+                />
+              )}
+              {summary.inProgressCount > 0 && (
+                <div
+                  style={{ width: `${(summary.inProgressCount / summary.totalRecipients) * 100}%` }}
+                  className="bg-blue-500 h-full"
+                />
+              )}
+              {summary.todoCount > 0 && (
+                <div
+                  style={{ width: `${(summary.todoCount / summary.totalRecipients) * 100}%` }}
+                  className="bg-zinc-300 dark:bg-zinc-700 h-full"
+                />
+              )}
+            </div>
+
+            <div className="grid grid-cols-4 gap-2 text-center pt-1">
+              <div className="p-2 bg-emerald-500/10 border border-emerald-500/20 rounded">
+                <div className="text-base font-bold text-emerald-700 dark:text-emerald-300">
+                  {summary.doneCount}
+                </div>
                 <div className="text-[10px] text-muted-foreground">Selesai</div>
               </div>
-              <div className="p-2 bg-muted/40 rounded border">
-                <div className="text-lg font-bold">{inProgressCount}</div>
-                <div className="text-[10px] text-muted-foreground">Sedang Dikerjakan</div>
+              <div className="p-2 bg-blue-500/10 border border-blue-500/20 rounded">
+                <div className="text-base font-bold text-blue-700 dark:text-blue-300">
+                  {summary.inProgressCount}
+                </div>
+                <div className="text-[10px] text-muted-foreground">In Progress</div>
               </div>
-              <div className="p-2 bg-muted/40 rounded border">
-                <div className="text-lg font-bold">{averageProgress}%</div>
-                <div className="text-[10px] text-muted-foreground">Rata-rata Progress</div>
+              <div className="p-2 bg-purple-500/10 border border-purple-500/20 rounded">
+                <div className="text-base font-bold text-purple-700 dark:text-purple-300">
+                  {summary.reviewCount}
+                </div>
+                <div className="text-[10px] text-muted-foreground">Review</div>
+              </div>
+              <div className="p-2 bg-zinc-500/10 border border-zinc-500/20 rounded">
+                <div className="text-base font-bold text-foreground">
+                  {summary.todoCount}
+                </div>
+                <div className="text-[10px] text-muted-foreground">Belum Mulai</div>
               </div>
             </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setTrackerOpen(true)}
+              className="w-full h-8 text-xs gap-1.5 font-medium border-primary/20 hover:bg-primary/5 hover:text-primary"
+            >
+              <Users className="h-3.5 w-3.5 text-primary" />
+              Lihat Roster & Status Progres Seluruh Anggota
+            </Button>
           </div>
         )}
       </div>
@@ -493,6 +547,15 @@ function TaskDetailContent({
           }}
         />
       )}
+
+      {/* Tracker Progres Anggota Kelas Modal */}
+      <TaskMemberTrackerModal
+        task={task}
+        members={members}
+        session={session}
+        open={trackerOpen}
+        onOpenChange={setTrackerOpen}
+      />
     </>
   );
 }

@@ -4,6 +4,8 @@ import * as React from "react";
 import { CurrentUserSession } from "@/lib/auth/session";
 import { formatDateIndo, formatRelativeDeadline } from "@/lib/date";
 import { TaskDetailData, TaskDetailModal } from "./TaskDetailModal";
+import { TaskMemberTrackerModal } from "./TaskMemberTrackerModal";
+import { calculateTaskProgressSummary } from "@/lib/tasks/progress";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -16,8 +18,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { TaskPriority, TaskStatus, TaskTargetType } from "@prisma/client";
-import { Search, RotateCcw, Send } from "lucide-react";
+import { TaskPriority, TaskStatus } from "@prisma/client";
+import { Search, RotateCcw, Send, Users } from "lucide-react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 
 interface TaskListProps {
@@ -41,6 +43,7 @@ export function TaskList({ tasks, session, courses, members = [] }: TaskListProp
 
   const [selectedTask, setSelectedTask] = React.useState<TaskDetailData | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
+  const [trackerTask, setTrackerTask] = React.useState<TaskDetailData | null>(null);
 
   // Helper untuk update query URL
   const updateQuery = (key: string, value: string) => {
@@ -412,15 +415,23 @@ export function TaskList({ tasks, session, courses, members = [] }: TaskListProp
                           </a>
                         )}
 
-                        {task.targetType === TaskTargetType.ALL ? (
-                          <Badge variant="secondary" className="text-[10px] font-normal">
-                            Semua Kelas
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-[10px] font-normal border-dashed">
-                            {task.assignments.length} Mhs
-                          </Badge>
-                        )}
+                        {/* Button Tracker Progres Kelas */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setTrackerTask(task);
+                          }}
+                          className="h-6 px-2 text-[11px] gap-1 text-muted-foreground hover:text-primary transition-colors"
+                          title="Lihat pelacakan progres anggota kelas"
+                        >
+                          <Users className="h-3 w-3 text-primary" />
+                          <span>
+                            {calculateTaskProgressSummary(task, members).doneCount}/
+                            {calculateTaskProgressSummary(task, members).totalRecipients} Selesai
+                          </span>
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -439,6 +450,15 @@ export function TaskList({ tasks, session, courses, members = [] }: TaskListProp
         session={session}
         courses={courses}
         members={members}
+      />
+
+      {/* Tracker Anggota Modal */}
+      <TaskMemberTrackerModal
+        task={trackerTask}
+        members={members}
+        session={session}
+        open={!!trackerTask}
+        onOpenChange={(open) => !open && setTrackerTask(null)}
       />
     </div>
   );
