@@ -155,7 +155,7 @@ export function SidebarNav({ session, isMobile = false }: SidebarNavProps) {
 
 export function Sidebar({ session }: { session: CurrentUserSession }) {
   return (
-    <aside className="hidden md:flex flex-col w-64 shrink-0 border-r min-h-[calc(100vh-3.5rem)] bg-background p-4">
+    <aside className="hidden md:flex fixed left-0 top-14 bottom-0 z-40 w-64 flex-col border-r bg-background p-4 overflow-y-auto">
       <SidebarNav session={session} />
     </aside>
   );
