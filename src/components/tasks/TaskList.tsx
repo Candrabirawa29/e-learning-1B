@@ -3,6 +3,7 @@
 import * as React from "react";
 import { CurrentUserSession } from "@/lib/auth/session";
 import { formatDateIndo, formatRelativeDeadline } from "@/lib/date";
+import { parseWibLocal } from "@/lib/datetime";
 import { TaskDetailData, TaskDetailModal } from "./TaskDetailModal";
 import { TaskMemberTrackerModal } from "./TaskMemberTrackerModal";
 import { calculateTaskProgressSummary } from "@/lib/tasks/progress";
@@ -92,13 +93,18 @@ export function TaskList({ tasks, session, courses, members = [] }: TaskListProp
       if (selectedSort === "deadline_asc") {
         if (!a.deadline) return 1;
         if (!b.deadline) return -1;
-        return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+        const timeA = parseWibLocal(a.deadline)?.getTime() ?? 0;
+        const timeB = parseWibLocal(b.deadline)?.getTime() ?? 0;
+        return timeA - timeB;
       }
       if (selectedSort === "deadline_desc") {
         if (!a.deadline) return 1;
         if (!b.deadline) return -1;
-        return new Date(b.deadline).getTime() - new Date(a.deadline).getTime();
+        const timeA = parseWibLocal(a.deadline)?.getTime() ?? 0;
+        const timeB = parseWibLocal(b.deadline)?.getTime() ?? 0;
+        return timeB - timeA;
       }
+
       if (selectedSort === "created_desc") {
         return b.id.localeCompare(a.id);
       }

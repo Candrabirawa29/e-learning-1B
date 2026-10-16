@@ -28,6 +28,7 @@ import { Plus, Loader2, Edit3, Link as LinkIcon } from "lucide-react";
 import { TaskPriority, TaskTargetType } from "@prisma/client";
 import { toast } from "sonner";
 import { TaskDetailData } from "./TaskDetailModal";
+import { toWibLocalInput } from "@/lib/datetime";
 
 interface TaskFormDialogProps {
   mode?: "create" | "edit";
@@ -75,14 +76,11 @@ export function TaskFormDialog({
         setCourseId(task.course?.id || (task as { courseId?: string }).courseId || "none");
         setPriority(task.priority || TaskPriority.MEDIUM);
         if (task.deadline) {
-          const d = new Date(task.deadline);
-          // Format local datetime string YYYY-MM-DDTHH:mm
-          const offset = d.getTimezoneOffset() * 60000;
-          const localISOTime = new Date(d.getTime() - offset).toISOString().slice(0, 16);
-          setDeadline(localISOTime);
+          setDeadline(toWibLocalInput(task.deadline));
         } else {
           setDeadline("");
         }
+
         setTargetType(task.targetType || TaskTargetType.ALL);
         setSelectedAssignees(task.assignments?.map((a) => a.profile.id) || []);
         setAttachmentUrl(task.attachmentUrl || "");
@@ -254,7 +252,7 @@ export function TaskFormDialog({
 
             {/* Batas Waktu */}
             <div className="space-y-1">
-              <Label className="text-xs font-medium">Batas Waktu (Deadline)</Label>
+              <Label className="text-xs font-medium">Batas Waktu / Tenggat (WIB)</Label>
               <Input
                 type="datetime-local"
                 value={deadline}

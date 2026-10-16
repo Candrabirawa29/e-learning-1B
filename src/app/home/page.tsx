@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { BookOpen, ListTodo, LogIn, Megaphone } from "lucide-react";
 import Link from "next/link";
+import { diffWibCalendarDays } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -246,17 +247,18 @@ export default async function HomePage() {
       };
     });
 
-    // Area Chart: Tugas Dibuat vs Diselesaikan per Minggu (Admin)
+    // Area Chart: Tugas Dibuat vs Diselesaikan per Minggu (Admin - WIB)
     const now = new Date();
     const weeklyActivityData: WeeklyActivityPoint[] = [];
     for (let i = 4; i >= 0; i--) {
-      const startOfWeek = new Date(now.getTime() - (i + 1) * 7 * 24 * 60 * 60 * 1000);
-      const endOfWeek = new Date(now.getTime() - i * 7 * 24 * 60 * 60 * 1000);
+      const minDaysAgo = (i + 1) * 7;
+      const maxDaysAgo = i * 7;
 
       const created = tasks.filter((t) => {
-        const d = new Date(t.createdAt);
-        return d >= startOfWeek && d < endOfWeek;
+        const daysAgo = -diffWibCalendarDays(t.createdAt, now);
+        return daysAgo <= minDaysAgo && daysAgo > maxDaysAgo;
       }).length;
+
 
       // Selesai di minggu tersebut
       let completed = 0;
@@ -295,17 +297,16 @@ export default async function HomePage() {
     );
   }
 
-  // Member Dashboard: Hitung Beban Deadline 4 Minggu ke Depan
+  // Member Dashboard: Hitung Beban Deadline 4 Minggu ke Depan (WIB)
   const now = new Date();
-  const dayMs = 24 * 60 * 60 * 1000;
   const deadlineWeeksData = [
     {
       week: "Minggu Ini",
       label: "Minggu 1",
       count: myTasks.filter((t) => {
         if (!t.deadline) return false;
-        const diff = new Date(t.deadline).getTime() - now.getTime();
-        return diff >= 0 && diff <= 7 * dayMs;
+        const diff = diffWibCalendarDays(t.deadline, now);
+        return diff >= 0 && diff <= 7;
       }).length,
     },
     {
@@ -313,8 +314,8 @@ export default async function HomePage() {
       label: "Minggu 2",
       count: myTasks.filter((t) => {
         if (!t.deadline) return false;
-        const diff = new Date(t.deadline).getTime() - now.getTime();
-        return diff > 7 * dayMs && diff <= 14 * dayMs;
+        const diff = diffWibCalendarDays(t.deadline, now);
+        return diff > 7 && diff <= 14;
       }).length,
     },
     {
@@ -322,8 +323,8 @@ export default async function HomePage() {
       label: "Minggu 3",
       count: myTasks.filter((t) => {
         if (!t.deadline) return false;
-        const diff = new Date(t.deadline).getTime() - now.getTime();
-        return diff > 14 * dayMs && diff <= 21 * dayMs;
+        const diff = diffWibCalendarDays(t.deadline, now);
+        return diff > 14 && diff <= 21;
       }).length,
     },
     {
@@ -331,11 +332,12 @@ export default async function HomePage() {
       label: "Minggu 4",
       count: myTasks.filter((t) => {
         if (!t.deadline) return false;
-        const diff = new Date(t.deadline).getTime() - now.getTime();
-        return diff > 21 * dayMs && diff <= 28 * dayMs;
+        const diff = diffWibCalendarDays(t.deadline, now);
+        return diff > 21 && diff <= 28;
       }).length,
     },
   ];
+
 
   return (
     <MemberDashboard

@@ -217,7 +217,7 @@ export function CourseScheduleDialog({
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label className="text-xs font-medium">Jam Mulai</Label>
+                <Label className="text-xs font-medium">Jam Mulai (WIB)</Label>
                 <Input
                   type="time"
                   value={startTime}
@@ -228,7 +228,7 @@ export function CourseScheduleDialog({
               </div>
 
               <div className="space-y-1">
-                <Label className="text-xs font-medium">Jam Selesai</Label>
+                <Label className="text-xs font-medium">Jam Selesai (WIB)</Label>
                 <Input
                   type="time"
                   value={endTime}

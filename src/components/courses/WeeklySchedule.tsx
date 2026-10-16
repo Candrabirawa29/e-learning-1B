@@ -5,6 +5,7 @@ import { CurrentUserSession } from "@/lib/auth/session";
 import { canManageCourse } from "@/lib/auth/rbac";
 import { deleteCourseScheduleAction } from "@/actions/courses";
 import { minutesToTimeString, DAYS_OF_WEEK_INDO } from "@/lib/date";
+import { getWibDayOfWeek } from "@/lib/datetime";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -54,11 +55,11 @@ export function WeeklySchedule({ schedules, courses, session }: WeeklySchedulePr
   const [scheduleForEdit, setScheduleForEdit] = React.useState<ScheduleItem | null>(null);
   const [editScheduleOpen, setEditScheduleOpen] = React.useState(false);
 
-  // Hari hari ini (1 = Senin ... 7 = Minggu)
+  // Hari hari ini (1 = Senin ... 7 = Minggu) dalam zona waktu WIB
   const currentDayOfWeek = React.useMemo(() => {
-    const d = new Date().getDay();
-    return d === 0 ? 7 : d;
+    return getWibDayOfWeek();
   }, []);
+
 
   const [activeMobileDay, setActiveMobileDay] = React.useState<number>(currentDayOfWeek);
 

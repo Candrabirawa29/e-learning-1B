@@ -2,7 +2,10 @@
 
 import * as React from "react";
 import { CurrentUserSession } from "@/lib/auth/session";
-import { formatDateIndo, formatRelativeDeadline } from "@/lib/date";
+import { formatRelativeDeadline } from "@/lib/date";
+import { wibDayKey, formatWib, parseWibLocal } from "@/lib/datetime";
+
+
 import { TaskDetailData, TaskDetailModal } from "./TaskDetailModal";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,22 +26,33 @@ export function TaskCalendar({ tasks, session, courses = [], members = [] }: Tas
   const tasksWithDeadline = React.useMemo(() => {
     return tasks
       .filter((t) => t.deadline !== null)
-      .sort((a, b) => new Date(a.deadline!).getTime() - new Date(b.deadline!).getTime());
+      .sort((a, b) => {
+        const timeA = parseWibLocal(a.deadline)?.getTime() ?? 0;
+        const timeB = parseWibLocal(b.deadline)?.getTime() ?? 0;
+        return timeA - timeB;
+      });
   }, [tasks]);
 
   const tasksWithoutDeadline = React.useMemo(() => {
     return tasks.filter((t) => t.deadline === null);
   }, [tasks]);
 
-  // Kelompokkan berdasarkan tanggal
+  // Kelompokkan berdasarkan tanggal menggunakan wibDayKey
   const groupedTasks = React.useMemo(() => {
-    const groups: { [dateStr: string]: TaskDetailData[] } = {};
+    const map = new Map<string, { label: string; items: TaskDetailData[] }>();
     for (const t of tasksWithDeadline) {
-      const d = formatDateIndo(t.deadline);
-      if (!groups[d]) groups[d] = [];
-      groups[d].push(t);
+      const key = wibDayKey(t.deadline);
+      if (!key) continue;
+      if (!map.has(key)) {
+        map.set(key, {
+          label: formatWib(t.deadline, "day-date"),
+          items: [],
+        });
+      }
+      map.get(key)!.items.push(t);
     }
-    return groups;
+    // Urutkan berdasarkan tanggal (YYYY-MM-DD)
+    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [tasksWithDeadline]);
 
   const priorityColor = {
@@ -51,23 +65,23 @@ export function TaskCalendar({ tasks, session, courses = [], members = [] }: Tas
   return (
     <div className="space-y-6">
       <div className="space-y-4">
-        {Object.keys(groupedTasks).length === 0 ? (
+        {groupedTasks.length === 0 ? (
           <div className="p-8 text-center border rounded-lg bg-card text-muted-foreground text-xs">
             Belum ada tugas yang memiliki batas waktu (deadline).
           </div>
         ) : (
-          Object.entries(groupedTasks).map(([dateStr, items]) => (
-            <div key={dateStr} className="space-y-2">
+          groupedTasks.map(([dayKey, group]) => (
+            <div key={dayKey} className="space-y-2">
               <div className="flex items-center gap-2 text-xs font-semibold text-foreground px-1">
                 <CalendarIcon className="h-4 w-4 text-primary" />
-                <span>{dateStr}</span>
+                <span>{group.label}</span>
                 <span className="text-[11px] text-muted-foreground font-normal">
-                  ({items.length} tugas)
+                  ({group.items.length} tugas)
                 </span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {items.map((task) => {
+                {group.items.map((task) => {
                   const deadline = formatRelativeDeadline(task.deadline);
                   const myProg = session.profile
                     ? task.progresses.find((p) => p.profileId === session.profile?.id)

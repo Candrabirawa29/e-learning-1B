@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { formatDateIndo, formatDateTimeIndo, formatRelativeDeadline } from "@/lib/date";
+import { parseWibLocal } from "@/lib/datetime";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -55,8 +56,13 @@ interface PublicDashboardProps {
 export function PublicDashboard({ tasks, materials, announcements, courses }: PublicDashboardProps) {
   const upcomingDeadlines = tasks
     .filter((t): t is PublicTaskItem & { deadline: Date | string } => Boolean(t.deadline))
-    .sort((a, b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime())
+    .sort((a, b) => {
+      const timeA = parseWibLocal(a.deadline)?.getTime() ?? 0;
+      const timeB = parseWibLocal(b.deadline)?.getTime() ?? 0;
+      return timeA - timeB;
+    })
     .slice(0, 5);
+
 
   const pinnedAnnouncement = announcements.find((a) => a.isPinned);
   const recentAnnouncements = announcements.slice(0, 3);

@@ -315,7 +315,7 @@ export function AuditLogClient({
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-muted-foreground flex items-center gap-1 font-medium">
               <Calendar className="h-3.5 w-3.5" />
-              Periode:
+              Periode (WIB):
             </span>
             <div className="flex items-center gap-1.5">
               <Input
@@ -323,7 +323,7 @@ export function AuditLogClient({
                 value={currentFilters.startDate || ""}
                 onChange={(e) => applyFilter({ startDate: e.target.value, page: "1" })}
                 className="h-8 text-xs w-36 bg-background"
-                title="Tanggal Mulai"
+                title="Tanggal Mulai (WIB)"
               />
               <span className="text-muted-foreground">s/d</span>
               <Input
@@ -331,7 +331,7 @@ export function AuditLogClient({
                 value={currentFilters.endDate || ""}
                 onChange={(e) => applyFilter({ endDate: e.target.value, page: "1" })}
                 className="h-8 text-xs w-36 bg-background"
-                title="Tanggal Selesai"
+                title="Tanggal Selesai (WIB)"
               />
             </div>
             {(currentFilters.startDate || currentFilters.endDate) && (

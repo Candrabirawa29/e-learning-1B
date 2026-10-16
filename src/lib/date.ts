@@ -1,55 +1,33 @@
 export const APP_TIMEZONE = "Asia/Jakarta";
 
-const MONTHS_INDO = [
-  "Januari",
-  "Februari",
-  "Maret",
-  "April",
-  "Mei",
-  "Juni",
-  "Juli",
-  "Agustus",
-  "September",
-  "Oktober",
-  "November",
-  "Desember",
-];
+import {
+  parseWibLocal,
+  toWibLocalInput,
+  formatWib,
+  wibDayKey,
+  getWibDayOfWeek,
+  startOfWibDay,
+  endOfWibDay,
+  diffWibCalendarDays,
+} from "./datetime";
 
-const DAYS_INDO = [
-  "Minggu",
-  "Senin",
-  "Selasa",
-  "Rabu",
-  "Kamis",
-  "Jumat",
-  "Sabtu",
-];
+export {
+  parseWibLocal,
+  toWibLocalInput,
+  formatWib,
+  wibDayKey,
+  getWibDayOfWeek,
+  startOfWibDay,
+  endOfWibDay,
+  diffWibCalendarDays,
+};
 
 export function formatDateIndo(dateInput: Date | string | number | null | undefined): string {
-  if (!dateInput) return "-";
-  const date = new Date(dateInput);
-  if (isNaN(date.getTime())) return "-";
-
-  const d = date.getDate();
-  const m = MONTHS_INDO[date.getMonth()];
-  const y = date.getFullYear();
-
-  return `${d} ${m} ${y}`;
+  return formatWib(dateInput, "date");
 }
 
 export function formatDateTimeIndo(dateInput: Date | string | number | null | undefined): string {
-  if (!dateInput) return "-";
-  const date = new Date(dateInput);
-  if (isNaN(date.getTime())) return "-";
-
-  const dayName = DAYS_INDO[date.getDay()];
-  const d = date.getDate();
-  const m = MONTHS_INDO[date.getMonth()];
-  const y = date.getFullYear();
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-
-  return `${dayName}, ${d} ${m} ${y} • ${hours}:${minutes} WIB`;
+  return formatWib(dateInput, "datetime-full");
 }
 
 export function formatRelativeDeadline(deadlineInput: Date | string | null | undefined): {
@@ -61,14 +39,18 @@ export function formatRelativeDeadline(deadlineInput: Date | string | null | und
     return { text: "Tidak ada deadline", isOverdue: false, isUrgent: false };
   }
 
-  const deadline = new Date(deadlineInput);
+  const deadline = parseWibLocal(deadlineInput);
+  if (!deadline) {
+    return { text: "Tidak ada deadline", isOverdue: false, isUrgent: false };
+  }
+
   const now = new Date();
   const diffMs = deadline.getTime() - now.getTime();
-  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
   const diffHours = Math.ceil(diffMs / (1000 * 60 * 60));
+  const calDiffDays = diffWibCalendarDays(deadline, now);
 
   if (diffMs < 0) {
-    const overdueDays = Math.abs(diffDays);
+    const overdueDays = Math.abs(calDiffDays);
     return {
       text: overdueDays === 0 ? "Lewat hari ini" : `Terlambat ${overdueDays} hari`,
       isOverdue: true,
@@ -76,23 +58,31 @@ export function formatRelativeDeadline(deadlineInput: Date | string | null | und
     };
   }
 
-  if (diffHours <= 24) {
+  if (diffHours <= 1) {
     return {
-      text: diffHours <= 1 ? "Kurang dari 1 jam lagi" : `${diffHours} jam lagi`,
+      text: "Kurang dari 1 jam lagi",
       isOverdue: false,
       isUrgent: true,
     };
   }
 
-  if (diffDays === 1) {
+  if (calDiffDays === 0) {
+    return {
+      text: `${diffHours} jam lagi`,
+      isOverdue: false,
+      isUrgent: true,
+    };
+  }
+
+  if (calDiffDays === 1) {
     return { text: "Besok", isOverdue: false, isUrgent: true };
   }
 
-  if (diffDays <= 3) {
-    return { text: `${diffDays} hari lagi`, isOverdue: false, isUrgent: true };
+  if (calDiffDays <= 3) {
+    return { text: `${calDiffDays} hari lagi`, isOverdue: false, isUrgent: true };
   }
 
-  return { text: `${diffDays} hari lagi`, isOverdue: false, isUrgent: false };
+  return { text: `${calDiffDays} hari lagi`, isOverdue: false, isUrgent: false };
 }
 
 export function minutesToTimeString(minute: number): string {
@@ -120,4 +110,5 @@ export const DAYS_OF_WEEK_INDO: Record<number, string> = {
 export function dayOfWeekToIndo(day: number): string {
   return DAYS_OF_WEEK_INDO[day] || "Tidak diketahui";
 }
+
 

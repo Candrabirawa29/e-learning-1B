@@ -7,6 +7,7 @@ import { createTaskSchema, updateTaskSchema, updateProgressSchema } from "@/lib/
 import { logActivity } from "@/lib/activity";
 import { ActivityAction, TaskPriority, TaskStatus, TaskTargetType } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { parseWibLocal } from "@/lib/datetime";
 
 export async function createTaskAction(data: {
   title: string;
@@ -44,7 +45,7 @@ export async function createTaskAction(data: {
       description: parsed.description || null,
       priority: parsed.priority,
       status: TaskStatus.TODO,
-      deadline: parsed.deadline ? new Date(parsed.deadline) : null,
+      deadline: parseWibLocal(parsed.deadline),
       targetType: parsed.targetType,
       createdById: session.profile.id,
       attachmentUrl: parsed.attachmentUrl || null,
@@ -147,7 +148,7 @@ export async function updateTaskAction(
       description: parsed.description || null,
       courseId: parsed.courseId || null,
       priority: parsed.priority,
-      deadline: parsed.deadline ? new Date(parsed.deadline) : null,
+      deadline: parseWibLocal(parsed.deadline),
       targetType: parsed.targetType,
       attachmentUrl: parsed.attachmentUrl || null,
       submissionUrl: parsed.submissionUrl || null,

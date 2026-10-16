@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/auth/session";
 import { Badge } from "@/components/ui/badge";
 import { AuditLogClient } from "@/components/audit/AuditLogClient";
 import { ActivityAction, Prisma } from "@prisma/client";
+import { parseWibLocal, endOfWibDay } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -55,16 +56,19 @@ export default async function AuditPage({
   if (startDate || endDate) {
     where.createdAt = {};
     if (startDate) {
-      const start = new Date(startDate);
-      start.setHours(0, 0, 0, 0);
-      where.createdAt.gte = start;
+      const start = parseWibLocal(startDate);
+      if (start) {
+        where.createdAt.gte = start;
+      }
     }
     if (endDate) {
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-      where.createdAt.lte = end;
+      const end = endOfWibDay(endDate);
+      if (end) {
+        where.createdAt.lte = end;
+      }
     }
   }
+
 
   if (q) {
     const matchingActions = Object.values(ActivityAction).filter((act) =>
