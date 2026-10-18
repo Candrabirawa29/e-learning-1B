@@ -6,7 +6,6 @@ import { formatDateTimeIndo } from "@/lib/date";
 import { MyTaskStatusDonut } from "./MyTaskStatusDonut";
 import { TaskProgressStackedBar, ActiveTaskProgressData } from "./TaskProgressStackedBar";
 import { TasksWeeklyAreaChart, WeeklyActivityPoint } from "./TasksWeeklyAreaChart";
-import { ActivationProgressCard } from "./ActivationProgressCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -38,8 +37,8 @@ interface AdminPjDashboardProps {
     totalTasks: number;
     totalMaterials: number;
     totalAnnouncements: number;
-    activatedMembers: number;
   };
+
   myTaskStats: {
     todo: number;
     inProgress: number;
@@ -143,15 +142,8 @@ export function AdminPjDashboard({
         </Card>
       </div>
 
-      {/* Admin: Progres Aktivasi Akun Mahasiswa */}
-      {isAdmin && (
-        <ActivationProgressCard
-          activatedCount={stats.activatedMembers}
-          totalMembers={stats.totalMembers}
-        />
-      )}
-
       {/* Charts Section */}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Donut Chart: Status tugasku (all roles) */}
         <MyTaskStatusDonut data={myTaskStats} />

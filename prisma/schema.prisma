@@ -64,6 +64,19 @@ enum ActivityAction {
   PASSWORD_RESET
 }
 
+enum FocusMode {
+  FOCUS
+  STOPWATCH
+}
+
+enum FocusSessionStatus {
+  RUNNING
+  PAUSED
+  COMPLETED
+  STOPPED_EARLY
+  CANCELLED
+}
+
 model Profile {
   id                 String            @id // Matches Supabase auth.users.id
   email              String            @unique
@@ -84,6 +97,9 @@ model Profile {
   createdAnnouncements Announcement[]    @relation("AnnouncementCreatedBy")
   activityLogs         ActivityLog[]     @relation("ActorLogs")
   coursePJs            CoursePJ[]        @relation("CoursePJUser")
+  focusSessions        FocusSession[]    @relation("UserFocusSessions")
+  studyPreference      StudyPreference?  @relation("UserStudyPreference")
+  aiUsages             AiUsage[]         @relation("UserAiUsage")
 
   @@map("profiles")
 }
@@ -138,6 +154,7 @@ model Course {
   tasks       Task[]
   schedules   CourseSchedule[]
   pjs         CoursePJ[]
+  focusSessions FocusSession[]
 
   @@index([classId])
   @@map("courses")
@@ -244,6 +261,7 @@ model Task {
   createdBy   Profile          @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
   assignments TaskAssignment[]
   progresses  TaskProgress[]
+  focusSessions FocusSession[]
 
   @@index([classId])
   @@index([courseId])
@@ -326,4 +344,66 @@ model ActivityLog {
   @@index([entityType])
   @@index([createdAt])
   @@map("activity_logs")
+}
+
+model FocusSession {
+  id              String             @id @default(uuid())
+  userId          String
+  clientSessionId String
+  courseId        String?
+  taskId          String?
+  mode            FocusMode          @default(FOCUS)
+  plannedSec      Int
+  startedAt       DateTime
+  lastResumedAt   DateTime?
+  accumulatedSec  Int                @default(0)
+  endedAt         DateTime?
+  status          FocusSessionStatus @default(RUNNING)
+  note            String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  user   Profile @relation("UserFocusSessions", fields: [userId], references: [id], onDelete: Cascade)
+  course Course? @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  task   Task?   @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, clientSessionId])
+  @@index([userId, startedAt])
+  @@index([userId, status])
+  @@index([courseId])
+  @@index([taskId])
+  @@map("focus_sessions")
+}
+
+model StudyPreference {
+  id                 String   @id @default(uuid())
+  userId             String   @unique
+  focusDuration      Int      @default(1500)
+  shortBreakDuration Int      @default(300)
+  longBreakDuration  Int      @default(900)
+  longBreakInterval  Int      @default(4)
+  weeklyTargetMin    Int      @default(600)
+  minActiveDayMin    Int      @default(25)
+  aiConsent          Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user Profile @relation("UserStudyPreference", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("study_preferences")
+}
+
+model AiUsage {
+  id        String   @id @default(uuid())
+  userId    String
+  date      String
+  count     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user Profile @relation("UserAiUsage", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId])
+  @@map("ai_usages")
 }

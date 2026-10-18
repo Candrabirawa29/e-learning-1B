@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/card";
 import { BookOpen, ListTodo, LogIn, Megaphone } from "lucide-react";
 import Link from "next/link";
 import { diffWibCalendarDays } from "@/lib/datetime";
+import { activeMemberProfileWhere } from "@/lib/members/activation";
 
 export const dynamic = "force-dynamic";
 
@@ -121,14 +122,14 @@ export default async function HomePage() {
   const [activeProfiles, totalMembers] = await Promise.all([
     prisma.profile.findMany({
       where: {
-        isActive: true,
-        activatedAt: { not: null },
+        ...activeMemberProfileWhere,
         memberships: { some: { classId: class1B.id } },
       },
       select: { id: true },
     }),
     prisma.classMembership.count({ where: { classId: class1B.id } }),
   ]);
+
 
   const activeProfileIds = activeProfiles.map((p) => p.id);
   const totalActiveRecipients = activeProfileIds.length;
@@ -282,8 +283,8 @@ export default async function HomePage() {
       totalTasks: tasks.length,
       totalMaterials: materials.length,
       totalAnnouncements: announcements.length,
-      activatedMembers: totalActiveRecipients,
     };
+
 
     return (
       <AdminPjDashboard

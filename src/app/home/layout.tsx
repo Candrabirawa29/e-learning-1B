@@ -2,6 +2,8 @@ import { requireUser } from "@/lib/auth/session";
 import { Navbar } from "@/components/layout/Navbar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { ViewAsBanner } from "@/components/layout/ViewAsBanner";
+import { FocusTimerProvider } from "@/components/focus/FocusTimerContext";
+import { MiniFocusFloatingWidget } from "@/components/focus/MiniFocusFloatingWidget";
 
 export const dynamic = "force-dynamic";
 
@@ -13,25 +15,28 @@ export default async function HomeLayout({
   const session = await requireUser();
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      <Navbar session={session} />
-      {session.isViewAs && session.viewAsRole && (
-        <ViewAsBanner
-          viewAsRole={session.viewAsRole}
-          isImpersonating={session.isImpersonating}
-          impersonatedUser={session.impersonatedUser}
-        />
-      )}
-      <div className="flex-1 max-w-7xl w-full mx-auto">
-        <Sidebar session={session} />
+    <FocusTimerProvider>
+      <div className="min-h-screen flex flex-col bg-background">
+        <Navbar session={session} />
+        {session.isViewAs && session.viewAsRole && (
+          <ViewAsBanner
+            viewAsRole={session.viewAsRole}
+            isImpersonating={session.isImpersonating}
+            impersonatedUser={session.impersonatedUser}
+          />
+        )}
+        <div className="flex-1 max-w-7xl w-full mx-auto">
+          <Sidebar session={session} />
 
-        <main className="md:ml-64 p-4 sm:p-6 lg:p-8 min-w-0">
-          {children}
-        </main>
+          <main className="md:ml-64 p-4 sm:p-6 lg:p-8 min-w-0">
+            {children}
+          </main>
+        </div>
+        <MiniFocusFloatingWidget />
+        <footer className="border-t py-3 text-center text-[11px] text-muted-foreground bg-muted/10">
+          Class 1-B • Academic Collaboration & E-Learning Platform
+        </footer>
       </div>
-      <footer className="border-t py-3 text-center text-[11px] text-muted-foreground bg-muted/10">
-        Class 1-B • Academic Collaboration & E-Learning Platform
-      </footer>
-    </div>
+    </FocusTimerProvider>
   );
 }

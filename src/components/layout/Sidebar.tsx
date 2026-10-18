@@ -12,6 +12,8 @@ import {
   User,
   Users,
   ShieldCheck,
+  Timer,
+  BarChart2,
 } from "lucide-react";
 
 interface SidebarNavProps {
@@ -40,6 +42,11 @@ export function SidebarNav({ session, isMobile = false }: SidebarNavProps) {
     { href: "/home/materials", label: "Mata Kuliah & Materi", icon: BookOpen },
     { href: "/home/announcements", label: "Pengumuman Kelas", icon: Megaphone },
     { href: "/home/profile", label: "Profil & Akun", icon: User },
+  ];
+
+  const studyIntelligenceLinks = [
+    { href: "/home/focus", label: "Ruang Fokus", icon: Timer },
+    { href: "/home/study-analytics", label: "Analitik Belajar", icon: BarChart2 },
   ];
 
   const memberManagementLinks = [
@@ -101,6 +108,32 @@ export function SidebarNav({ session, isMobile = false }: SidebarNavProps) {
               Akademik & Tugas
             </div>
             {memberGeneralLinks.map((item) => {
+              const Icon = item.icon;
+              const isActive = pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-2.5 px-3 py-2 rounded-md font-medium transition-colors",
+                    isActive
+                      ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+
+          <div className="space-y-1 pt-2 border-t">
+            <div className="px-3 py-1 font-semibold text-[11px] text-muted-foreground uppercase tracking-wider flex items-center justify-between">
+              <span>Fokus & Belajar</span>
+              <span className="text-[9px] font-normal lowercase bg-muted px-1.5 py-0.5 rounded text-muted-foreground">pribadi</span>
+            </div>
+            {studyIntelligenceLinks.map((item) => {
               const Icon = item.icon;
               const isActive = pathname === item.href;
               return (

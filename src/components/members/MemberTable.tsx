@@ -10,7 +10,8 @@ import {
   impersonateMemberAction,
 } from "@/actions/members";
 import { CurrentUserSession } from "@/lib/auth/session";
-import { formatDateTimeIndo } from "@/lib/date";
+import { formatDateTimeIndo, formatDateIndo } from "@/lib/date";
+import { isMemberActivated } from "@/lib/members/activation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,9 +54,11 @@ import {
   Edit2,
   Trash2,
   AlertTriangle,
+  Copy,
+  Check,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 
 export interface MemberListItem {
   id: string;
@@ -63,6 +66,7 @@ export interface MemberListItem {
   name: string | null;
   mustChangePassword: boolean;
   isActive: boolean;
+  activatedAt: Date | string | null;
   lastLoginAt: Date | string | null;
   createdAt: Date | string;
   role: Role;
@@ -75,8 +79,65 @@ interface MemberTableProps {
 
 export function MemberTable({ members, session }: MemberTableProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+
   const [search, setSearch] = React.useState("");
   const [roleFilter, setRoleFilter] = React.useState<string>("all");
+
+  const initialActivation = searchParams.get("activation");
+  const [activationFilter, setActivationFilter] = React.useState<"all" | "active" | "pending">(
+    initialActivation === "active" || initialActivation === "pending" ? initialActivation : "all"
+  );
+  const [isCopied, setIsCopied] = React.useState(false);
+
+  React.useEffect(() => {
+    const current = searchParams.get("activation");
+    if (current === "active" || current === "pending") {
+      setActivationFilter(current);
+    } else {
+      setActivationFilter("all");
+    }
+  }, [searchParams]);
+
+  const handleActivationFilterChange = (val: string | null) => {
+    const nextVal = (val === "active" || val === "pending" ? val : "all") as "all" | "active" | "pending";
+    setActivationFilter(nextVal);
+    const params = new URLSearchParams(searchParams.toString());
+    if (nextVal === "all") {
+      params.delete("activation");
+    } else {
+      params.set("activation", nextVal);
+    }
+    const qs = params.toString();
+    router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
+  };
+
+  const activatedCount = React.useMemo(
+    () => members.filter((m) => isMemberActivated(m)).length,
+    [members]
+  );
+  const unactivatedCount = members.length - activatedCount;
+
+  const handleCopyWhatsAppList = () => {
+    const pendingMembers = members.filter((m) => !isMemberActivated(m) && m.isActive);
+
+    if (pendingMembers.length === 0) {
+      toast.info("Semua mahasiswa yang aktif sudah menyelesaikan aktivasi akun!");
+      return;
+    }
+
+    const listText = pendingMembers
+      .map((m, idx) => `${idx + 1}. ${m.name || m.email.split("@")[0]} (${m.email})`)
+      .join("\n");
+
+    const message = `*Pengumuman Aktivasi Akun E-Learning 1-B*\n\nBerikut daftar mahasiswa (${pendingMembers.length} orang) yang belum mengganti password awal:\n\n${listText}\n\nMohon segera login dan ganti password untuk mengamankan akun Anda. Terima kasih! 🙏`;
+
+    navigator.clipboard.writeText(message);
+    setIsCopied(true);
+    toast.success("Daftar belum aktivasi berhasil disalin ke clipboard!");
+    setTimeout(() => setIsCopied(false), 2500);
+  };
 
   // State: Impersonate
   const [impersonatingId, setImpersonatingId] = React.useState<string | null>(null);
@@ -111,9 +172,11 @@ export function MemberTable({ members, session }: MemberTableProps) {
         if (!matchName && !matchEmail) return false;
       }
       if (roleFilter !== "all" && m.role !== roleFilter) return false;
+      if (activationFilter === "active" && !isMemberActivated(m)) return false;
+      if (activationFilter === "pending" && isMemberActivated(m)) return false;
       return true;
     });
-  }, [members, search, roleFilter]);
+  }, [members, search, roleFilter, activationFilter]);
 
   // Handle Masuk Sebagai Mahasiswa (Impersonate)
   const handleImpersonate = async (member: MemberListItem) => {
@@ -259,19 +322,59 @@ export function MemberTable({ members, session }: MemberTableProps) {
           />
         </div>
 
-        <Select value={roleFilter} onValueChange={(val) => { if (val) setRoleFilter(val); }}>
-          <SelectTrigger className="h-8 text-xs w-[140px]">
-            <SelectValue placeholder="Semua Role">
-              {roleFilter === "all" ? "Semua Role" : roleFilter}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all" className="text-xs">Semua Role</SelectItem>
-            <SelectItem value={Role.ADMIN} className="text-xs">Admin</SelectItem>
-            <SelectItem value={Role.PJ} className="text-xs">PJ</SelectItem>
-            <SelectItem value={Role.MEMBER} className="text-xs">Member</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={activationFilter} onValueChange={handleActivationFilterChange}>
+            <SelectTrigger className="h-8 text-xs w-[170px]">
+              <SelectValue placeholder="Status Aktivasi">
+                {activationFilter === "active"
+                  ? `Teraktivasi (${activatedCount})`
+                  : activationFilter === "pending"
+                  ? `Belum Aktivasi (${unactivatedCount})`
+                  : `Semua Status (${members.length})`}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">
+                Semua Status ({members.length})
+              </SelectItem>
+              <SelectItem value="active" className="text-xs">
+                Teraktivasi ({activatedCount})
+              </SelectItem>
+              <SelectItem value="pending" className="text-xs">
+                Belum Aktivasi ({unactivatedCount})
+              </SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={roleFilter} onValueChange={(val) => { if (val) setRoleFilter(val); }}>
+            <SelectTrigger className="h-8 text-xs w-[130px]">
+              <SelectValue placeholder="Semua Role">
+                {roleFilter === "all" ? "Semua Role" : roleFilter}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">Semua Role</SelectItem>
+              <SelectItem value={Role.ADMIN} className="text-xs">Admin</SelectItem>
+              <SelectItem value={Role.PJ} className="text-xs">PJ</SelectItem>
+              <SelectItem value={Role.MEMBER} className="text-xs">Member</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleCopyWhatsAppList}
+            className="h-8 text-xs gap-1.5 border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+            title="Salin daftar mahasiswa yang belum aktivasi dalam format teks WhatsApp"
+          >
+            {isCopied ? (
+              <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+            ) : (
+              <Copy className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+            )}
+            <span>Salin Format WA</span>
+          </Button>
+        </div>
       </div>
 
       {/* Table */}
@@ -279,11 +382,11 @@ export function MemberTable({ members, session }: MemberTableProps) {
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50 text-[11px]">
-              <TableHead className="w-[28%]">Mahasiswa</TableHead>
-              <TableHead className="w-[12%]">Role</TableHead>
+              <TableHead className="w-[26%]">Mahasiswa</TableHead>
+              <TableHead className="w-[10%]">Role</TableHead>
               <TableHead className="w-[12%]">Status Akun</TableHead>
-              <TableHead className="w-[14%]">Ganti Password</TableHead>
-              <TableHead className="w-[16%]">Login Terakhir</TableHead>
+              <TableHead className="w-[16%]">Status Aktivasi</TableHead>
+              <TableHead className="w-[18%]">Login Terakhir</TableHead>
               <TableHead className="w-[18%] text-right">Aksi</TableHead>
             </TableRow>
           </TableHeader>
@@ -332,12 +435,32 @@ export function MemberTable({ members, session }: MemberTableProps) {
                       )}
                     </TableCell>
                     <TableCell>
-                      {member.mustChangePassword ? (
-                        <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-300 font-normal">
-                          Wajib Ganti
-                        </Badge>
+                      {isMemberActivated(member) ? (
+                        <div>
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800"
+                          >
+                            Teraktivasi
+                          </Badge>
+                          {member.activatedAt && (
+                            <div className="text-[10px] text-muted-foreground mt-0.5">
+                              {formatDateIndo(member.activatedAt)}
+                            </div>
+                          )}
+                        </div>
                       ) : (
-                        <span className="text-[11px] text-muted-foreground">Sudah Mengganti</span>
+                        <div>
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800"
+                          >
+                            Belum Aktivasi
+                          </Badge>
+                          <div className="text-[10px] text-muted-foreground mt-0.5">
+                            Wajib ganti password
+                          </div>
+                        </div>
                       )}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-[11px]">

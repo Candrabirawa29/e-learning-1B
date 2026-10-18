@@ -335,3 +335,17 @@ export function diffWibCalendarDays(
 
   return Math.round((targetUtc - baseUtc) / (24 * 60 * 60 * 1000));
 }
+
+/**
+ * Calculates calendar day string YYYY-MM-DD offset by N days (in UTC calendar day arithmetic)
+ */
+export function offsetDateKey(dateKey: string, dayOffset: number): string {
+  const parts = dateKey.split("-").map(Number);
+  const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+  d.setUTCDate(d.getUTCDate() + dayOffset);
+  const year = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+

@@ -2,7 +2,10 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth/session";
 import { MemberTable } from "@/components/members/MemberTable";
 import { CreateMemberDialog } from "@/components/members/CreateMemberDialog";
+import { ActivationProgressCard } from "@/components/dashboard/ActivationProgressCard";
+import { isMemberActivated } from "@/lib/members/activation";
 import { Badge } from "@/components/ui/badge";
+
 
 export const dynamic = "force-dynamic";
 
@@ -25,10 +28,14 @@ export default async function ManageMembersPage() {
     name: m.profile.name,
     mustChangePassword: m.profile.mustChangePassword,
     isActive: m.profile.isActive,
+    activatedAt: m.profile.activatedAt,
     lastLoginAt: m.profile.lastLoginAt,
     createdAt: m.profile.createdAt,
     role: m.role,
   }));
+
+  const totalMembers = memberList.length;
+  const activatedCount = memberList.filter((m) => isMemberActivated(m)).length;
 
   return (
     <div className="space-y-6">
@@ -48,7 +55,13 @@ export default async function ManageMembersPage() {
         <CreateMemberDialog />
       </div>
 
+      <ActivationProgressCard
+        activatedCount={activatedCount}
+        totalMembers={totalMembers}
+      />
+
       <MemberTable members={memberList} session={session} />
     </div>
   );
 }
+
