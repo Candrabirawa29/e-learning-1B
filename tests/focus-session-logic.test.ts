@@ -1,131 +1,192 @@
 import { test, describe } from "node:test";
 import assert from "node:assert";
+import {
+  resolveFocusSessionProgress,
+  extendFocusSessionPlan,
+  formatOverdueText,
+} from "../src/lib/focus/session-logic";
+import { MAX_SESSION_SEC } from "../src/types/focus";
 
-// Pure logic verification for focus sessions
 describe("Focus Session Transition & Time Accounting Rules", () => {
-  const MAX_SESSION_SEC = 14400; // 4 jam
+  test("1. Target tercapai lalu dibiarkan 48 menit: otomatis COMPLETED dengan focusSec = plannedSec", () => {
+    // Skenario: Target 25 menit (1500s). Dimulai t = 0.
+    // Dibiarkan berjalan terus selama 25m + 48m = 73 menit (4380 detik).
+    const plannedSec = 1500;
+    const startTimeMs = 1000000;
+    const nowMs = startTimeMs + (25 * 60 + 48 * 60) * 1000; // 48 menit setelah target
 
-  test("Perhitungan waktu fokus: jeda (pause) tidak dihitung dalam accumulatedSec", () => {
-    // Sesi mulai, jalan 15 menit (900s), lalu jeda 10 menit (600s), lalu jalan 10 menit (600s)
-    let accumulatedSec = 0;
-    let status: string = "RUNNING";
-    let lastResumedAt: number | null = 1000000;
-
-    // 1. Setelah 900 detik, user melakukan PAUSE
-    const pauseTime = 1000000 + 900 * 1000;
-    const elapsedOnPause = Math.floor((pauseTime - lastResumedAt) / 1000);
-    accumulatedSec += elapsedOnPause;
-    lastResumedAt = null;
-    status = "PAUSED";
-
-    assert.strictEqual(accumulatedSec, 900);
-    assert.strictEqual(status, "PAUSED");
-    assert.strictEqual(lastResumedAt, null);
-
-    // 2. Selama 600 detik dalam status PAUSED, waktu fokus TIDAK bertambah
-    const whilePausedTime = pauseTime + 600 * 1000;
-    const isRunning = (status as string) === "RUNNING";
-    const currentFocusWhilePaused = accumulatedSec + (isRunning && lastResumedAt ? 1 : 0);
-    assert.strictEqual(currentFocusWhilePaused, 900);
-
-    // 3. User melakukan RESUME
-    const resumeTime = whilePausedTime;
-    lastResumedAt = resumeTime;
-    status = "RUNNING";
-    assert.strictEqual(status, "RUNNING");
-
-    // 4. Setelah 600 detik lagi, user melakukan COMPLETE
-    const completeTime = resumeTime + 600 * 1000;
-    const finalElapsed = Math.floor((completeTime - lastResumedAt) / 1000);
-    accumulatedSec += finalElapsed;
-    status = "COMPLETED";
-
-    // Total waktu fokus = 900 + 600 = 1500 detik (25 menit). Waktu jeda 600s sama sekali tidak masuk.
-    assert.strictEqual(accumulatedSec, 1500);
-    assert.strictEqual(status, "COMPLETED");
-  });
-
-  test("Batas maksimum: durasi fokus dibatasi maksimal 4 jam (14.400 detik)", () => {
-    const accumulatedSec = 14300;
-    const lastResumedAt = 1000000;
-    // Berjalan selama 500 detik lagi (total 14800s > 14400s)
-    const now = lastResumedAt + 500 * 1000;
-    const delta = Math.floor((now - lastResumedAt) / 1000);
-
-    const cappedAccumulated = Math.min(MAX_SESSION_SEC, accumulatedSec + delta);
-    assert.strictEqual(cappedAccumulated, 14400);
-  });
-
-  test("Validasi transisi status: menolak transisi ilegal", () => {
-    const validTransitions: Record<string, string[]> = {
-      RUNNING: ["PAUSED", "COMPLETED", "STOPPED_EARLY", "CANCELLED"],
-      PAUSED: ["RUNNING", "COMPLETED", "STOPPED_EARLY", "CANCELLED"],
-      COMPLETED: [],
-      STOPPED_EARLY: [],
-      CANCELLED: [],
+    const session = {
+      mode: "FOCUS" as const,
+      plannedSec,
+      startedAt: startTimeMs,
+      lastResumedAt: startTimeMs,
+      accumulatedSec: 0,
+      status: "RUNNING" as const,
     };
 
-    function canTransition(current: string, next: string): boolean {
-      return (validTransitions[current] || []).includes(next);
-    }
+    const result = resolveFocusSessionProgress(session, nowMs);
 
-    assert.strictEqual(canTransition("RUNNING", "PAUSED"), true);
-    assert.strictEqual(canTransition("PAUSED", "RUNNING"), true);
-    assert.strictEqual(canTransition("RUNNING", "COMPLETED"), true);
-    assert.strictEqual(canTransition("COMPLETED", "PAUSED"), false);
-    assert.strictEqual(canTransition("CANCELLED", "RUNNING"), false);
-    assert.strictEqual(canTransition("STOPPED_EARLY", "COMPLETED"), false);
+    // Target tercapai dan melewati batas 10 menit (48m >= 10m)
+    assert.strictEqual(result.isTargetReached, true, "Target harus ditandai tercapai");
+    assert.strictEqual(result.isAutoCompleted, true, "Sesi harus otomatis auto-completed tanpa konfirmasi 10 menit");
+    assert.strictEqual(result.resolvedStatus, "COMPLETED", "Status ter-resolusi harus COMPLETED");
+    // Waktu fokus harus dikunci pada plannedSec (1500 detik), 48 menit lewat target TIDAK dihitung dalam fokus
+    assert.strictEqual(result.focusSec, plannedSec, "focusSec harus dikunci tepat pada plannedSec");
+    assert.strictEqual(result.overdueSec, 48 * 60, "overdueSec harus mencatat 48 menit lewat (2880s)");
+    assert.strictEqual(result.remainingSec, 0, "remainingSec harus 0");
   });
 
-  test("Anti-duplikat retry: clientSessionId yang sama mengembalikan sesi eksisting", () => {
-    // Simulasi in-memory repository
-    const db = new Map<string, { id: string; userId: string; clientSessionId: string }>();
+  test("2. Pause lalu resume: durasi jeda tidak dihitung dalam akumulasi fokus", () => {
+    const plannedSec = 1500;
+    const t0 = 1000000;
 
-    function mockStartSession(userId: string, clientSessionId: string) {
-      const key = `${userId}_${clientSessionId}`;
-      if (db.has(key)) {
-        return { isNew: false, session: db.get(key)! };
-      }
-      const newSession = {
-        id: `sess_${Date.now()}`,
-        userId,
-        clientSessionId,
-      };
-      db.set(key, newSession);
-      return { isNew: true, session: newSession };
-    }
+    // 1. Jalan 10 menit (600s), lalu user pause
+    const tPause = t0 + 600 * 1000;
+    const sessionRunning = {
+      mode: "FOCUS" as const,
+      plannedSec,
+      startedAt: t0,
+      lastResumedAt: t0,
+      accumulatedSec: 0,
+      status: "RUNNING" as const,
+    };
 
-    const firstCall = mockStartSession("user_1", "client_req_123");
-    assert.strictEqual(firstCall.isNew, true);
+    const progressBeforePause = resolveFocusSessionProgress(sessionRunning, tPause);
+    assert.strictEqual(progressBeforePause.focusSec, 600);
+    assert.strictEqual(progressBeforePause.elapsedSec, 600);
 
-    // Request kedua dengan clientSessionId yang sama (misal network retry)
-    const secondCall = mockStartSession("user_1", "client_req_123");
-    assert.strictEqual(secondCall.isNew, false);
-    assert.strictEqual(secondCall.session.id, firstCall.session.id);
+    // Simpan status PAUSED dengan accumulatedSec = 600, lastResumedAt = null
+    const sessionPaused = {
+      ...sessionRunning,
+      accumulatedSec: 600,
+      lastResumedAt: null,
+      status: "PAUSED" as const,
+      updatedAt: tPause,
+    };
+
+    // 2. Selama 15 menit dalam status PAUSED (tPause + 900s), waktu fokus TIDAK bertambah
+    const tDuringPause = tPause + 900 * 1000;
+    const progressDuringPause = resolveFocusSessionProgress(sessionPaused, tDuringPause);
+    assert.strictEqual(progressDuringPause.focusSec, 600, "Waktu fokus saat jeda harus tetap 600 detik");
+    assert.strictEqual(progressDuringPause.elapsedSec, 600, "Elapsed saat jeda harus tetap 600 detik");
+    assert.strictEqual(progressDuringPause.resolvedStatus, "PAUSED");
+
+    // 3. User melakukan RESUME pada tResume = tDuringPause
+    const tResume = tDuringPause;
+    const sessionResumed = {
+      ...sessionPaused,
+      status: "RUNNING" as const,
+      lastResumedAt: tResume,
+    };
+
+    // 4. Berjalan 10 menit (600s) lagi setelah resume
+    const tFinal = tResume + 600 * 1000;
+    const progressFinal = resolveFocusSessionProgress(sessionResumed, tFinal);
+
+    // Total waktu fokus = 600 + 600 = 1200 detik (20 menit). Jeda 15 menit sama sekali tidak masuk.
+    assert.strictEqual(progressFinal.focusSec, 1200, "Total fokus harus 1200 detik tanpa waktu jeda");
+    assert.strictEqual(progressFinal.elapsedSec, 1200);
+    assert.strictEqual(progressFinal.remainingSec, 300);
+    assert.strictEqual(progressFinal.isTargetReached, false);
   });
 
-  test("Isolasi antar user: user A tidak dapat mengakses atau memodifikasi sesi user B", () => {
-    const sessions = [
-      { id: "s1", userId: "user_A", status: "RUNNING" },
-      { id: "s2", userId: "user_B", status: "RUNNING" },
-    ];
+  test("3. Lanjut fokus (+5 menit): akumulasi dikunci di target lama, target bertambah, hitung dari saat tombol ditekan", () => {
+    // Skenario: Target awal 25 menit (1500s). Target tercapai pada t = 1500s.
+    const plannedSec = 1500;
+    const t0 = 1000000;
+    const tTargetReached = t0 + 1500 * 1000;
 
-    function mockPauseSession(requestingUserId: string, sessionId: string) {
-      const target = sessions.find((s) => s.id === sessionId);
-      if (!target || target.userId !== requestingUserId) {
-        throw new Error("Akses ditolak: sesi bukan milik Anda.");
-      }
-      target.status = "PAUSED";
-      return target;
-    }
+    // Saat tepat target tercapai
+    const sessionAtTarget = {
+      mode: "FOCUS" as const,
+      plannedSec,
+      startedAt: t0,
+      lastResumedAt: t0,
+      accumulatedSec: 0,
+      status: "RUNNING" as const,
+    };
 
-    // User A mencoba pause sesi s1 -> sukses
-    assert.doesNotThrow(() => mockPauseSession("user_A", "s1"));
+    const evalAtTarget = resolveFocusSessionProgress(sessionAtTarget, tTargetReached);
+    assert.strictEqual(evalAtTarget.isTargetReached, true);
+    assert.strictEqual(evalAtTarget.focusSec, 1500);
 
-    // User A mencoba pause sesi s2 (milik User B) -> dilempar error
-    assert.throws(
-      () => mockPauseSession("user_A", "s2"),
-      /Akses ditolak: sesi bukan milik Anda/
-    );
+    // 30 detik kemudian user menekan tombol "Lanjut fokus +5 menit" (300 detik)
+    const tExtendClicked = tTargetReached + 30 * 1000;
+    const extensionPlan = extendFocusSessionPlan(plannedSec, tExtendClicked, 300);
+
+    assert.strictEqual(extensionPlan.newPlannedSec, 1800, "Target baru harus bertambah 300s menjadi 1800s");
+    assert.strictEqual(extensionPlan.newAccumulatedSec, 1500, "Akumulasi harus dikunci tepat di target lama (1500s)");
+    assert.strictEqual(extensionPlan.newStatus, "RUNNING");
+    assert.strictEqual(extensionPlan.newLastResumedAt.getTime(), tExtendClicked);
+
+    // Sesi baru setelah perpanjangan
+    const sessionExtended = {
+      mode: "FOCUS" as const,
+      plannedSec: extensionPlan.newPlannedSec,
+      startedAt: t0,
+      lastResumedAt: extensionPlan.newLastResumedAt,
+      accumulatedSec: extensionPlan.newAccumulatedSec,
+      status: extensionPlan.newStatus,
+    };
+
+    // 120 detik (2 menit) setelah tombol ditekan
+    const tAfterExtension = tExtendClicked + 120 * 1000;
+    const evalExtended = resolveFocusSessionProgress(sessionExtended, tAfterExtension);
+
+    // Total waktu berjalan = 1500 + 120 = 1620s. Target baru 1800s belum tercapai.
+    assert.strictEqual(evalExtended.elapsedSec, 1620);
+    assert.strictEqual(evalExtended.focusSec, 1620);
+    assert.strictEqual(evalExtended.remainingSec, 180, "Sisa waktu ke target baru harus 180s (3 menit)");
+    assert.strictEqual(evalExtended.isTargetReached, false, "Target baru belum tercapai");
+    assert.strictEqual(evalExtended.overdueSec, 0);
+  });
+
+  test("4. Sesi ditinggalkan (>4 jam tanpa aktivitas): otomatis STOPPED_EARLY", () => {
+    // Skenario: Mulai t = 0, jalan 20 menit (1200 detik), lalu ditinggalkan selama 5 jam (18000s)
+    const t0 = 1000000;
+    const tAbandoned = t0 + 18000 * 1000; // 5 jam kemudian
+
+    const session = {
+      mode: "FOCUS" as const,
+      plannedSec: 1500,
+      startedAt: t0,
+      lastResumedAt: t0,
+      accumulatedSec: 0,
+      status: "RUNNING" as const,
+    };
+
+    const evalAbandoned = resolveFocusSessionProgress(session, tAbandoned);
+
+    assert.strictEqual(evalAbandoned.isAbandoned, true, "Harus ditandai isAbandoned");
+    assert.strictEqual(evalAbandoned.resolvedStatus, "STOPPED_EARLY", "Status harus STOPPED_EARLY");
+    assert.ok(evalAbandoned.elapsedSec <= MAX_SESSION_SEC, "Durasi tidak boleh melebihi batas 4 jam");
+    assert.strictEqual(evalAbandoned.elapsedSec, MAX_SESSION_SEC);
+  });
+
+  test("Mode STOPWATCH: tidak dibatasi durasinya oleh plannedSec", () => {
+    const t0 = 1000000;
+    // Berjalan 45 menit (2700s)
+    const tNow = t0 + 2700 * 1000;
+
+    const session = {
+      mode: "STOPWATCH" as const,
+      plannedSec: 0,
+      startedAt: t0,
+      lastResumedAt: t0,
+      accumulatedSec: 0,
+      status: "RUNNING" as const,
+    };
+
+    const evalStopwatch = resolveFocusSessionProgress(session, tNow);
+    assert.strictEqual(evalStopwatch.focusSec, 2700, "Mode STOPWATCH menghitung durasi penuh");
+    assert.strictEqual(evalStopwatch.elapsedSec, 2700);
+    assert.strictEqual(evalStopwatch.overdueSec, 0, "Mode STOPWATCH tidak ada overdue");
+    assert.strictEqual(evalStopwatch.isAutoCompleted, false, "Stopwatch tidak di-auto-complete setelah 10m");
+  });
+
+  test("Format waktu lewat target (+mm:ss lewat)", () => {
+    assert.strictEqual(formatOverdueText(75), "+01:15 lewat");
+    assert.strictEqual(formatOverdueText(305), "+05:05 lewat");
+    assert.strictEqual(formatOverdueText(3665), "+01:01:05 lewat");
   });
 });

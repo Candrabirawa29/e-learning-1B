@@ -8,13 +8,20 @@ import { z } from "zod";
 
 import {
   MAX_SESSION_SEC,
-  MAX_INACTIVITY_MS,
+  EXTENSION_STEP_SEC,
   ActiveFocusSessionDto,
   StudyPreferenceDto,
+  FloatMode,
+  AlertIntensity,
 } from "@/types/focus";
+import {
+  resolveFocusSessionProgress,
+  extendFocusSessionPlan,
+} from "@/lib/focus/session-logic";
 
 /**
- * Helper internal: Menutup otomatis sesi yang terlantar > 4 jam tanpa aktivitas.
+ * Helper internal: Menutup otomatis sesi yang terlantar > 4 jam tanpa aktivitas,
+ * atau sesi FOCUS yang telah mencapai target dan dibiarkan > 10 menit tanpa konfirmasi (auto-complete).
  */
 async function autoCleanupStaleSession(userId: string) {
   const active = await prisma.focusSession.findFirst({
@@ -27,28 +34,44 @@ async function autoCleanupStaleSession(userId: string) {
   if (!active) return null;
 
   const now = new Date();
-  const lastActiveTime = active.lastResumedAt || active.updatedAt || active.startedAt;
-  const elapsedSinceActivity = now.getTime() - lastActiveTime.getTime();
+  const evaluation = resolveFocusSessionProgress(
+    {
+      mode: active.mode,
+      plannedSec: active.plannedSec,
+      startedAt: active.startedAt,
+      lastResumedAt: active.lastResumedAt,
+      accumulatedSec: active.accumulatedSec,
+      status: active.status,
+      updatedAt: active.updatedAt,
+    },
+    now
+  );
 
-  // Jika tanpa aktivitas > 4 jam, tutup otomatis dengan akumulasi waktu yang valid
-  if (elapsedSinceActivity > MAX_INACTIVITY_MS) {
-    let finalAccumulated = active.accumulatedSec;
-    if (active.status === FocusSessionStatus.RUNNING && active.lastResumedAt) {
-      // Tambahkan waktu hingga batas maksimum inaktivitas (maks 4 jam total)
-      const additional = Math.floor((lastActiveTime.getTime() + MAX_INACTIVITY_MS - active.lastResumedAt.getTime()) / 1000);
-      finalAccumulated = Math.min(MAX_SESSION_SEC, active.accumulatedSec + Math.max(0, additional));
-    }
-
+  // 1. Sesi terlantar > 4 jam: tutup STOPPED_EARLY
+  if (evaluation.isAbandoned) {
     await prisma.focusSession.update({
       where: { id: active.id },
       data: {
         status: FocusSessionStatus.STOPPED_EARLY,
-        accumulatedSec: finalAccumulated,
+        accumulatedSec: evaluation.elapsedSec,
         lastResumedAt: null,
         endedAt: now,
       },
     });
+    return null;
+  }
 
+  // 2. Target FOCUS tercapai dan dibiarkan > 10 menit: otomatis COMPLETED (lazy finalization)
+  if (evaluation.isAutoCompleted) {
+    await prisma.focusSession.update({
+      where: { id: active.id },
+      data: {
+        status: FocusSessionStatus.COMPLETED,
+        accumulatedSec: active.plannedSec, // Akumulasi dikunci di plannedSec
+        lastResumedAt: null,
+        endedAt: new Date(active.startedAt.getTime() + active.plannedSec * 1000),
+      },
+    });
     return null;
   }
 
@@ -221,16 +244,23 @@ export async function pauseFocusSessionAction(sessionId: string) {
   }
 
   const now = new Date();
-  const lastResumed = target.lastResumedAt || target.startedAt;
-  const elapsedSec = Math.max(0, Math.floor((now.getTime() - lastResumed.getTime()) / 1000));
-
-  // Validasi waktu dinding & batas 4 jam
-  const newAccumulated = Math.min(MAX_SESSION_SEC, target.accumulatedSec + elapsedSec);
+  const evaluation = resolveFocusSessionProgress(
+    {
+      mode: target.mode,
+      plannedSec: target.plannedSec,
+      startedAt: target.startedAt,
+      lastResumedAt: target.lastResumedAt,
+      accumulatedSec: target.accumulatedSec,
+      status: target.status,
+      updatedAt: target.updatedAt,
+    },
+    now
+  );
 
   const updated = await prisma.focusSession.update({
     where: { id: sessionId },
     data: {
-      accumulatedSec: newAccumulated,
+      accumulatedSec: evaluation.focusSec,
       lastResumedAt: null,
       status: FocusSessionStatus.PAUSED,
     },
@@ -279,6 +309,7 @@ export async function resumeFocusSessionAction(sessionId: string) {
 
 /**
  * Menyelesaikan sesi fokus secara penuh (COMPLETED).
+ * Pada mode FOCUS, durasi fokus dikunci di plannedSec (waktu lewat target tidak dihitung).
  */
 export async function completeFocusSessionAction(sessionId: string, note?: string | null) {
   const session = await requireUser();
@@ -301,17 +332,23 @@ export async function completeFocusSessionAction(sessionId: string, note?: strin
   }
 
   const now = new Date();
-  let additionalSec = 0;
-  if (target.status === FocusSessionStatus.RUNNING && target.lastResumedAt) {
-    additionalSec = Math.max(0, Math.floor((now.getTime() - target.lastResumedAt.getTime()) / 1000));
-  }
-
-  const finalAccumulated = Math.min(MAX_SESSION_SEC, target.accumulatedSec + additionalSec);
+  const evaluation = resolveFocusSessionProgress(
+    {
+      mode: target.mode,
+      plannedSec: target.plannedSec,
+      startedAt: target.startedAt,
+      lastResumedAt: target.lastResumedAt,
+      accumulatedSec: target.accumulatedSec,
+      status: target.status,
+      updatedAt: target.updatedAt,
+    },
+    now
+  );
 
   const updated = await prisma.focusSession.update({
     where: { id: sessionId },
     data: {
-      accumulatedSec: finalAccumulated,
+      accumulatedSec: evaluation.focusSec,
       lastResumedAt: null,
       endedAt: now,
       status: FocusSessionStatus.COMPLETED,
@@ -327,7 +364,7 @@ export async function completeFocusSessionAction(sessionId: string, note?: strin
 
 /**
  * Menghentikan sesi fokus lebih awal (STOPPED_EARLY).
- * Tetap mencatat durasi fokus yang berhasil diraih.
+ * Tetap mencatat durasi fokus yang berhasil diraih (dibatasi plannedSec jika FOCUS).
  */
 export async function stopEarlyFocusSessionAction(sessionId: string, note?: string | null) {
   const session = await requireUser();
@@ -350,17 +387,23 @@ export async function stopEarlyFocusSessionAction(sessionId: string, note?: stri
   }
 
   const now = new Date();
-  let additionalSec = 0;
-  if (target.status === FocusSessionStatus.RUNNING && target.lastResumedAt) {
-    additionalSec = Math.max(0, Math.floor((now.getTime() - target.lastResumedAt.getTime()) / 1000));
-  }
-
-  const finalAccumulated = Math.min(MAX_SESSION_SEC, target.accumulatedSec + additionalSec);
+  const evaluation = resolveFocusSessionProgress(
+    {
+      mode: target.mode,
+      plannedSec: target.plannedSec,
+      startedAt: target.startedAt,
+      lastResumedAt: target.lastResumedAt,
+      accumulatedSec: target.accumulatedSec,
+      status: target.status,
+      updatedAt: target.updatedAt,
+    },
+    now
+  );
 
   const updated = await prisma.focusSession.update({
     where: { id: sessionId },
     data: {
-      accumulatedSec: finalAccumulated,
+      accumulatedSec: evaluation.focusSec,
       lastResumedAt: null,
       endedAt: now,
       status: FocusSessionStatus.STOPPED_EARLY,
@@ -372,6 +415,71 @@ export async function stopEarlyFocusSessionAction(sessionId: string, note?: stri
   revalidatePath("/home/study-analytics");
 
   return { success: true, accumulatedSec: updated.accumulatedSec };
+}
+
+/**
+ * Memperpanjang sesi fokus aktif "Lanjut fokus +5 menit".
+ * Akumulasi dikunci di target lama (plannedSec lama), plannedSec bertambah +300 detik,
+ * dan waktu dihitung lagi dari saat tombol ditekan.
+ */
+export async function extendFocusSessionAction(sessionId: string) {
+  const session = await requireUser();
+  assertCanMutate(session);
+  const userId = session.user!.id;
+
+  const target = await prisma.focusSession.findUnique({
+    where: { id: sessionId },
+  });
+
+  if (!target || target.userId !== userId) {
+    throw new Error("Sesi tidak ditemukan atau bukan milik Anda.");
+  }
+
+  if (
+    target.status !== FocusSessionStatus.RUNNING &&
+    target.status !== FocusSessionStatus.PAUSED
+  ) {
+    throw new Error("Hanya sesi aktif yang dapat diperpanjang.");
+  }
+
+  const now = new Date();
+  const plan = extendFocusSessionPlan(target.plannedSec, now, EXTENSION_STEP_SEC);
+
+  const updated = await prisma.focusSession.update({
+    where: { id: sessionId },
+    data: {
+      plannedSec: plan.newPlannedSec,
+      accumulatedSec: plan.newAccumulatedSec,
+      lastResumedAt: plan.newLastResumedAt,
+      status: FocusSessionStatus.RUNNING,
+    },
+    include: {
+      course: { select: { id: true, name: true, code: true } },
+      task: { select: { id: true, title: true } },
+    },
+  });
+
+  revalidatePath("/home/focus");
+  revalidatePath("/home/study-analytics");
+
+  return {
+    success: true,
+    session: {
+      id: updated.id,
+      clientSessionId: updated.clientSessionId,
+      mode: updated.mode,
+      plannedSec: updated.plannedSec,
+      startedAt: updated.startedAt.toISOString(),
+      lastResumedAt: updated.lastResumedAt?.toISOString() || null,
+      accumulatedSec: updated.accumulatedSec,
+      status: updated.status,
+      note: updated.note,
+      courseId: updated.courseId,
+      taskId: updated.taskId,
+      course: updated.course,
+      task: updated.task,
+    },
+  };
 }
 
 /**
@@ -459,6 +567,9 @@ export async function getOrCreateStudyPreference(userId: string): Promise<StudyP
         weeklyTargetMin: 600,
         minActiveDayMin: 25,
         aiConsent: false,
+        floatMode: FloatMode.IN_APP,
+        alertIntensity: AlertIntensity.NORMAL,
+        soundVolume: 80,
       },
     });
   }
@@ -473,6 +584,9 @@ export async function getOrCreateStudyPreference(userId: string): Promise<StudyP
     weeklyTargetMin: pref.weeklyTargetMin,
     minActiveDayMin: pref.minActiveDayMin,
     aiConsent: pref.aiConsent,
+    floatMode: pref.floatMode || FloatMode.IN_APP,
+    alertIntensity: pref.alertIntensity || AlertIntensity.NORMAL,
+    soundVolume: pref.soundVolume ?? 80,
   };
 }
 
@@ -493,6 +607,9 @@ const UpdatePreferenceSchema = z.object({
   weeklyTargetMin: z.number().int().min(30).max(10080).optional(),
   minActiveDayMin: z.number().int().min(5).max(480).optional(),
   aiConsent: z.boolean().optional(),
+  floatMode: z.nativeEnum(FloatMode).optional(),
+  alertIntensity: z.nativeEnum(AlertIntensity).optional(),
+  soundVolume: z.number().int().min(0).max(100).optional(),
 });
 
 /**
@@ -516,6 +633,9 @@ export async function updateStudyPreferencesAction(rawInput: z.infer<typeof Upda
       weeklyTargetMin: data.weeklyTargetMin ?? 600,
       minActiveDayMin: data.minActiveDayMin ?? 25,
       aiConsent: data.aiConsent ?? false,
+      floatMode: data.floatMode ?? FloatMode.IN_APP,
+      alertIntensity: data.alertIntensity ?? AlertIntensity.NORMAL,
+      soundVolume: data.soundVolume ?? 80,
     },
     update: data,
   });
@@ -523,7 +643,23 @@ export async function updateStudyPreferencesAction(rawInput: z.infer<typeof Upda
   revalidatePath("/home/focus");
   revalidatePath("/home/study-analytics");
 
-  return { success: true, preferences: updated };
+  return {
+    success: true,
+    preferences: {
+      id: updated.id,
+      userId: updated.userId,
+      focusDuration: updated.focusDuration,
+      shortBreakDuration: updated.shortBreakDuration,
+      longBreakDuration: updated.longBreakDuration,
+      longBreakInterval: updated.longBreakInterval,
+      weeklyTargetMin: updated.weeklyTargetMin,
+      minActiveDayMin: updated.minActiveDayMin,
+      aiConsent: updated.aiConsent,
+      floatMode: updated.floatMode,
+      alertIntensity: updated.alertIntensity,
+      soundVolume: updated.soundVolume,
+    },
+  };
 }
 
 /**

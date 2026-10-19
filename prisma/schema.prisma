@@ -77,6 +77,18 @@ enum FocusSessionStatus {
   CANCELLED
 }
 
+enum FloatMode {
+  PIP
+  IN_APP
+  OFF
+}
+
+enum AlertIntensity {
+  SOFT
+  NORMAL
+  STRONG
+}
+
 model Profile {
   id                 String            @id // Matches Supabase auth.users.id
   email              String            @unique
@@ -376,17 +388,20 @@ model FocusSession {
 }
 
 model StudyPreference {
-  id                 String   @id @default(uuid())
-  userId             String   @unique
-  focusDuration      Int      @default(1500)
-  shortBreakDuration Int      @default(300)
-  longBreakDuration  Int      @default(900)
-  longBreakInterval  Int      @default(4)
-  weeklyTargetMin    Int      @default(600)
-  minActiveDayMin    Int      @default(25)
-  aiConsent          Boolean  @default(false)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                 String         @id @default(uuid())
+  userId             String         @unique
+  focusDuration      Int            @default(1500)
+  shortBreakDuration Int            @default(300)
+  longBreakDuration  Int            @default(900)
+  longBreakInterval  Int            @default(4)
+  weeklyTargetMin    Int            @default(600)
+  minActiveDayMin    Int            @default(25)
+  aiConsent          Boolean        @default(false)
+  floatMode          FloatMode      @default(IN_APP)
+  alertIntensity     AlertIntensity @default(NORMAL)
+  soundVolume        Int            @default(80)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
 
   user Profile @relation("UserStudyPreference", fields: [userId], references: [id], onDelete: Cascade)
 

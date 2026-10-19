@@ -1,7 +1,11 @@
-import { FocusMode, FocusSessionStatus } from "@prisma/client";
+import { FocusMode, FocusSessionStatus, FloatMode, AlertIntensity } from "@prisma/client";
+
+export { FloatMode, AlertIntensity };
 
 export const MAX_SESSION_SEC = 14400; // 4 jam (dalam detik)
 export const MAX_INACTIVITY_MS = 14400 * 1000; // 4 jam (dalam milidetik)
+export const AUTO_COMPLETE_GRACE_SEC = 600; // 10 menit (dalam detik) toleransi tanpa konfirmasi
+export const EXTENSION_STEP_SEC = 300; // 5 menit (dalam detik) perpanjangan sesi
 
 export interface ActiveFocusSessionDto {
   id: string;
@@ -29,4 +33,8 @@ export interface StudyPreferenceDto {
   weeklyTargetMin: number;
   minActiveDayMin: number;
   aiConsent: boolean;
+  floatMode: FloatMode;
+  alertIntensity: AlertIntensity;
+  soundVolume: number;
 }
+
