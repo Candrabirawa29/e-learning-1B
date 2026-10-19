@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireUser, assertCanMutate } from "@/lib/auth/session";
-import { FocusMode, FocusSessionStatus } from "@prisma/client";
+import { FocusMode, FocusSessionStatus, Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
@@ -20,6 +20,7 @@ import {
   deriveStatus,
 } from "@/lib/focus/session-logic";
 import { wibDayKey } from "@/lib/datetime";
+import { wibLocal } from "@/lib/analytics/study-queries";
 
 /**
  * Helper internal: Menutup otomatis sesi yang terlantar > 4 jam tanpa aktivitas,
@@ -722,21 +723,16 @@ export async function getTodayCompletedCyclesAction(): Promise<number> {
   const userId = session.user!.id;
 
   const todayKey = wibDayKey(new Date());
-  const startTimestamp = `${todayKey} 00:00:00+07`;
-  const endTimestamp = `${todayKey} 23:59:59.999+07`;
 
-  const count = await prisma.focusSession.count({
-    where: {
-      userId,
-      status: FocusSessionStatus.COMPLETED,
-      startedAt: {
-        gte: new Date(startTimestamp),
-        lte: new Date(endTimestamp),
-      },
-    },
-  });
+  const rows = await prisma.$queryRaw<{ count: number }[]>(Prisma.sql`
+    SELECT COUNT(*)::integer AS count
+    FROM "focus_sessions"
+    WHERE "userId" = ${userId}
+      AND "status" = 'COMPLETED'
+      AND to_char(${wibLocal('"startedAt"')}, 'YYYY-MM-DD') = ${todayKey};
+  `);
 
-  return count;
+  return rows[0]?.count ? Number(rows[0].count) : 0;
 }
 
 /**

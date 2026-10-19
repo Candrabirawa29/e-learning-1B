@@ -1,6 +1,18 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 
+/**
+ * Fragmen SQL untuk mengonversi kolom timestamp Prisma (tanpa zona waktu, menyimpan UTC)
+ * ke waktu lokal Asia/Jakarta (WIB, UTC+07:00).
+ *
+ * Sesuai aturan SQL PostgreSQL:
+ * (("col" AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Jakarta')
+ * Mengonversi UTC timestamp-without-timezone menjadi timestamp-without-timezone lokal WIB.
+ */
+export function wibLocal(col: string = '"startedAt"'): Prisma.Sql {
+  return Prisma.raw(`((${col} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Jakarta')`);
+}
+
 export interface DailyAggregationRow {
   day_key: string;
   total_minutes: number;
@@ -33,26 +45,23 @@ export interface TaskBreakdownRow {
 
 /**
  * Mengambil ringkasan harian untuk rentang tanggal tertentu (WIB).
- * Sesi dihitung pada hari startedAt.
+ * Sesi dihitung pada hari startedAt berdasarkan waktu lokal WIB.
  */
 export async function getDailyStudyAggregation(
   userId: string,
   startDateKey: string,
   endDateKey: string
 ): Promise<DailyAggregationRow[]> {
-  const startTimestamp = `${startDateKey} 00:00:00+07`;
-  const endTimestamp = `${endDateKey} 23:59:59.999+07`;
-
   const rows = await prisma.$queryRaw<DailyAggregationRow[]>(Prisma.sql`
     SELECT
-      to_char("startedAt" AT TIME ZONE 'Asia/Jakarta', 'YYYY-MM-DD') AS day_key,
+      to_char(${wibLocal('"startedAt"')}, 'YYYY-MM-DD') AS day_key,
       ROUND(COALESCE(SUM("accumulatedSec"), 0) / 60.0)::integer AS total_minutes,
       COUNT(*)::integer AS session_count
     FROM "focus_sessions"
     WHERE "userId" = ${userId}
       AND ("status" = 'COMPLETED' OR ("status" = 'STOPPED_EARLY' AND "accumulatedSec" > 0))
-      AND "startedAt" >= ${startTimestamp}::timestamptz
-      AND "startedAt" <= ${endTimestamp}::timestamptz
+      AND ${wibLocal('"startedAt"')} >= (${startDateKey} || ' 00:00:00')::timestamp
+      AND ${wibLocal('"startedAt"')} <= (${endDateKey} || ' 23:59:59.999')::timestamp
     GROUP BY day_key
     ORDER BY day_key ASC;
   `);
@@ -62,26 +71,23 @@ export async function getDailyStudyAggregation(
 
 /**
  * Mengambil seluruh data harian untuk heatmap tahunan ala GitHub.
- * Rentang waktu: 53 minggu terakhir (atau 365 hari terakhir).
+ * Rentang waktu: 53 minggu terakhir (atau 365 hari terakhir) menurut WIB.
  */
 export async function getAnnualHeatmapData(
   userId: string,
   startDateKey: string,
   endDateKey: string
 ): Promise<Map<string, { minutes: number; sessionCount: number }>> {
-  const startTimestamp = `${startDateKey} 00:00:00+07`;
-  const endTimestamp = `${endDateKey} 23:59:59.999+07`;
-
   const rows = await prisma.$queryRaw<DailyAggregationRow[]>(Prisma.sql`
     SELECT
-      to_char("startedAt" AT TIME ZONE 'Asia/Jakarta', 'YYYY-MM-DD') AS day_key,
+      to_char(${wibLocal('"startedAt"')}, 'YYYY-MM-DD') AS day_key,
       ROUND(COALESCE(SUM("accumulatedSec"), 0) / 60.0)::integer AS total_minutes,
       COUNT(*)::integer AS session_count
     FROM "focus_sessions"
     WHERE "userId" = ${userId}
       AND ("status" = 'COMPLETED' OR ("status" = 'STOPPED_EARLY' AND "accumulatedSec" > 0))
-      AND "startedAt" >= ${startTimestamp}::timestamptz
-      AND "startedAt" <= ${endTimestamp}::timestamptz
+      AND ${wibLocal('"startedAt"')} >= (${startDateKey} || ' 00:00:00')::timestamp
+      AND ${wibLocal('"startedAt"')} <= (${endDateKey} || ' 23:59:59.999')::timestamp
     GROUP BY day_key
     ORDER BY day_key ASC;
   `);
@@ -99,27 +105,24 @@ export async function getAnnualHeatmapData(
 
 /**
  * Mengambil matriks Jam x Hari (Hour of Day 0..23 vs Day of Week 1..7 ISO).
- * Digunakan untuk visualisasi pola waktu produktif.
+ * Jam dan hari-dalam-minggu diambil dari nilai lokal WIB.
  */
 export async function getHourDayMatrix(
   userId: string,
   startDateKey: string,
   endDateKey: string
 ): Promise<HourDayMatrixRow[]> {
-  const startTimestamp = `${startDateKey} 00:00:00+07`;
-  const endTimestamp = `${endDateKey} 23:59:59.999+07`;
-
   const rows = await prisma.$queryRaw<HourDayMatrixRow[]>(Prisma.sql`
     SELECT
-      EXTRACT(HOUR FROM "startedAt" AT TIME ZONE 'Asia/Jakarta')::integer AS hour_of_day,
-      EXTRACT(ISODOW FROM "startedAt" AT TIME ZONE 'Asia/Jakarta')::integer AS day_of_week,
+      EXTRACT(HOUR FROM ${wibLocal('"startedAt"')})::integer AS hour_of_day,
+      EXTRACT(ISODOW FROM ${wibLocal('"startedAt"')})::integer AS day_of_week,
       COUNT(*)::integer AS session_count,
       ROUND(COALESCE(SUM("accumulatedSec"), 0) / 60.0)::integer AS total_minutes
     FROM "focus_sessions"
     WHERE "userId" = ${userId}
       AND ("status" = 'COMPLETED' OR ("status" = 'STOPPED_EARLY' AND "accumulatedSec" > 0))
-      AND "startedAt" >= ${startTimestamp}::timestamptz
-      AND "startedAt" <= ${endTimestamp}::timestamptz
+      AND ${wibLocal('"startedAt"')} >= (${startDateKey} || ' 00:00:00')::timestamp
+      AND ${wibLocal('"startedAt"')} <= (${endDateKey} || ' 23:59:59.999')::timestamp
     GROUP BY hour_of_day, day_of_week
     ORDER BY day_of_week ASC, hour_of_day ASC;
   `);
@@ -135,9 +138,6 @@ export async function getCourseBreakdown(
   startDateKey: string,
   endDateKey: string
 ): Promise<CourseBreakdownRow[]> {
-  const startTimestamp = `${startDateKey} 00:00:00+07`;
-  const endTimestamp = `${endDateKey} 23:59:59.999+07`;
-
   const rows = await prisma.$queryRaw<CourseBreakdownRow[]>(Prisma.sql`
     SELECT
       fs."courseId" AS course_id,
@@ -149,8 +149,8 @@ export async function getCourseBreakdown(
     LEFT JOIN "courses" c ON fs."courseId" = c.id
     WHERE fs."userId" = ${userId}
       AND (fs."status" = 'COMPLETED' OR (fs."status" = 'STOPPED_EARLY' AND fs."accumulatedSec" > 0))
-      AND fs."startedAt" >= ${startTimestamp}::timestamptz
-      AND fs."startedAt" <= ${endTimestamp}::timestamptz
+      AND ${wibLocal('fs."startedAt"')} >= (${startDateKey} || ' 00:00:00')::timestamp
+      AND ${wibLocal('fs."startedAt"')} <= (${endDateKey} || ' 23:59:59.999')::timestamp
     GROUP BY fs."courseId", c."name", c."code"
     ORDER BY total_minutes DESC;
   `);
@@ -168,9 +168,6 @@ export async function getTaskBreakdownIfSufficient(
   startDateKey: string,
   endDateKey: string
 ): Promise<{ sufficientData: boolean; tasks: TaskBreakdownRow[]; totalTasksCount: number }> {
-  const startTimestamp = `${startDateKey} 00:00:00+07`;
-  const endTimestamp = `${endDateKey} 23:59:59.999+07`;
-
   const rows = await prisma.$queryRaw<TaskBreakdownRow[]>(Prisma.sql`
     SELECT
       fs."taskId" AS task_id,
@@ -185,8 +182,8 @@ export async function getTaskBreakdownIfSufficient(
     WHERE fs."userId" = ${userId}
       AND fs."taskId" IS NOT NULL
       AND (fs."status" = 'COMPLETED' OR (fs."status" = 'STOPPED_EARLY' AND fs."accumulatedSec" > 0))
-      AND fs."startedAt" >= ${startTimestamp}::timestamptz
-      AND fs."startedAt" <= ${endTimestamp}::timestamptz
+      AND ${wibLocal('fs."startedAt"')} >= (${startDateKey} || ' 00:00:00')::timestamp
+      AND ${wibLocal('fs."startedAt"')} <= (${endDateKey} || ' 23:59:59.999')::timestamp
     GROUP BY fs."taskId", t."title", c."name", t."status"
     ORDER BY total_minutes DESC;
   `);
@@ -215,9 +212,6 @@ export async function getSessionCompletionRatio(
   startDateKey: string,
   endDateKey: string
 ): Promise<{ startedCount: number; completedCount: number; stoppedEarlyCount: number; completionRatio: number }> {
-  const startTimestamp = `${startDateKey} 00:00:00+07`;
-  const endTimestamp = `${endDateKey} 23:59:59.999+07`;
-
   const counts = await prisma.$queryRaw<{ status: string; count: number }[]>(Prisma.sql`
     SELECT
       "status"::text,
@@ -226,8 +220,8 @@ export async function getSessionCompletionRatio(
     WHERE "userId" = ${userId}
       AND "status" != 'CANCELLED'
       AND "mode" = 'FOCUS'
-      AND "startedAt" >= ${startTimestamp}::timestamptz
-      AND "startedAt" <= ${endTimestamp}::timestamptz
+      AND ${wibLocal('"startedAt"')} >= (${startDateKey} || ' 00:00:00')::timestamp
+      AND ${wibLocal('"startedAt"')} <= (${endDateKey} || ' 23:59:59.999')::timestamp
     GROUP BY "status";
   `);
 
@@ -254,19 +248,20 @@ export async function getSessionCompletionRatio(
 /**
  * Mengambil total menit per minggu (Senin - Minggu) untuk 5 minggu terakhir
  * untuk menghitung tren dan rata-rata 4 minggu sebelumnya.
+ * Batas minggu dimulai hari Senin (date_trunc week).
  */
 export async function getWeeklyTrendRecords(
   userId: string
 ): Promise<{ thisWeekMinutes: number; pastWeeksMinutes: number[]; availableWeeksCount: number }> {
-  // Query 8 minggu terakhir dari trunc week
+  // Query 8 minggu terakhir dari trunc week berdasarkan nilai lokal WIB
   const rows = await prisma.$queryRaw<{ week_start: string; total_minutes: number }[]>(Prisma.sql`
     SELECT
-      to_char(date_trunc('week', "startedAt" AT TIME ZONE 'Asia/Jakarta'), 'YYYY-MM-DD') AS week_start,
+      to_char(date_trunc('week', ${wibLocal('"startedAt"')}), 'YYYY-MM-DD') AS week_start,
       ROUND(COALESCE(SUM("accumulatedSec"), 0) / 60.0)::integer AS total_minutes
     FROM "focus_sessions"
     WHERE "userId" = ${userId}
       AND ("status" = 'COMPLETED' OR ("status" = 'STOPPED_EARLY' AND "accumulatedSec" > 0))
-      AND "startedAt" >= (NOW() AT TIME ZONE 'Asia/Jakarta' - INTERVAL '8 weeks')::timestamptz
+      AND ${wibLocal('"startedAt"')} >= (${wibLocal('NOW()')} - INTERVAL '8 weeks')
     GROUP BY week_start
     ORDER BY week_start DESC
     LIMIT 6;

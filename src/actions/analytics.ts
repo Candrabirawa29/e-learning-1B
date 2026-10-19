@@ -137,8 +137,6 @@ export async function getStudyAnalyticsDashboard(
     percentChange = Math.round(
       ((currentMinutesTotal - prevMinutesTotal) / prevMinutesTotal) * 100
     );
-  } else if (currentMinutesTotal > 0) {
-    percentChange = 100;
   }
 
   // 7. Konsistensi Mingguan (0 - 100)

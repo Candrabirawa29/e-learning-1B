@@ -76,6 +76,7 @@ interface FocusHistoryItem {
   mode: FocusMode;
   plannedSec: number;
   startedAt: string;
+  lastResumedAt: string | null;
   accumulatedSec: number;
   lastSeenAt: string | null;
   isCorrected?: boolean;
@@ -86,6 +87,21 @@ interface FocusHistoryItem {
   taskId: string | null;
   course?: { id: string; name: string; code: string | null } | null;
   task?: { id: string; title: string } | null;
+}
+
+function getItemDurationSec(item: FocusHistoryItem, nowMs: number): number {
+  if (item.status === FocusSessionStatus.RUNNING && nowMs > 0) {
+    const resumeEpoch = item.lastResumedAt
+      ? new Date(item.lastResumedAt).getTime()
+      : new Date(item.startedAt).getTime();
+    const additionalSec = Math.max(0, Math.floor((nowMs - resumeEpoch) / 1000));
+    const totalSec = item.accumulatedSec + additionalSec;
+    if (item.mode === FocusMode.FOCUS && item.plannedSec > 0) {
+      return Math.min(totalSec, item.plannedSec);
+    }
+    return totalSec;
+  }
+  return item.accumulatedSec;
 }
 
 interface CourseOption {
@@ -113,6 +129,20 @@ export function FocusHistoryTable({ courses, tasks = [] }: FocusHistoryTableProp
   const [statusFilter, setStatusFilter] = React.useState<string>("ALL");
   const [courseFilter, setCourseFilter] = React.useState<string>("ALL");
   const [isLoading, setIsLoading] = React.useState<boolean>(true);
+  const [nowMs, setNowMs] = React.useState<number>(0);
+
+  // Live timer interval ticker for RUNNING rows
+  React.useEffect(() => {
+    setNowMs(Date.now());
+    const hasRunning = items.some((i) => i.status === FocusSessionStatus.RUNNING);
+    if (!hasRunning) return;
+
+    const timer = setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [items]);
 
   // Edit dialog state
   const [editingItem, setEditingItem] = React.useState<FocusHistoryItem | null>(null);
@@ -269,7 +299,15 @@ export function FocusHistoryTable({ courses, tasks = [] }: FocusHistoryTableProp
             }}
           >
             <SelectTrigger className="h-8 text-xs w-[140px] cursor-pointer">
-              <SelectValue placeholder="Semua status" />
+              <SelectValue placeholder="Semua status">
+                {statusFilter === "ALL"
+                  ? "Semua status"
+                  : statusFilter === FocusSessionStatus.COMPLETED
+                  ? "Target tercapai"
+                  : statusFilter === FocusSessionStatus.STOPPED_EARLY
+                  ? "Berhenti lebih awal"
+                  : statusFilter}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL" className="text-xs">
@@ -295,7 +333,11 @@ export function FocusHistoryTable({ courses, tasks = [] }: FocusHistoryTableProp
             }}
           >
             <SelectTrigger className="h-8 text-xs w-[160px] cursor-pointer">
-              <SelectValue placeholder="Pilih mata kuliah" />
+              <SelectValue placeholder="Semua mata kuliah">
+                {courseFilter === "ALL"
+                  ? "Semua mata kuliah"
+                  : courses.find((c) => c.id === courseFilter)?.name || "Semua mata kuliah"}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL" className="text-xs">
@@ -359,7 +401,13 @@ export function FocusHistoryTable({ courses, tasks = [] }: FocusHistoryTableProp
 
                   <TableCell>
                     <div className="flex items-center gap-1.5 font-mono">
-                      <span>{formatDuration(item.accumulatedSec)}</span>
+                      <span>{formatDuration(getItemDurationSec(item, nowMs))}</span>
+                      {item.status === FocusSessionStatus.RUNNING && (
+                        <span className="relative flex h-2 w-2" title="Sesi sedang berjalan">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                        </span>
+                      )}
                       {item.isCorrected && (
                         <Badge
                           variant="secondary"

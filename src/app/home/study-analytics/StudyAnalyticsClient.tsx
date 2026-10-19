@@ -217,7 +217,7 @@ export function StudyAnalyticsClient({ initialData }: StudyAnalyticsClientProps)
                     </Badge>
                   )
                 ) : (
-                  <span className="text-muted-foreground">Data periode lalu belum cukup</span>
+                  <span className="text-xs text-muted-foreground italic">belum ada pembanding</span>
                 )}
               </div>
             </CardContent>
