@@ -4,6 +4,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { ViewAsBanner } from "@/components/layout/ViewAsBanner";
 import { FocusTimerProvider } from "@/components/focus/FocusTimerContext";
 import { MiniFocusFloatingWidget } from "@/components/focus/MiniFocusFloatingWidget";
+import { PictureInPicturePortal } from "@/components/focus/PictureInPicturePortal";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,7 @@ export default async function HomeLayout({
           </main>
         </div>
         <MiniFocusFloatingWidget />
+        <PictureInPicturePortal />
         <footer className="border-t py-3 text-center text-[11px] text-muted-foreground bg-muted/10">
           Class 1-B • Academic Collaboration & E-Learning Platform
         </footer>

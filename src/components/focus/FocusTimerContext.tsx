@@ -562,41 +562,147 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
     }
 
     try {
-      if (pipWindow) {
+      if (pipWindow && !pipWindow.closed) {
         pipWindow.focus();
         return true;
       }
 
       const win = await window.documentPictureInPicture!.requestWindow({
-        width: 340,
-        height: 190,
+        width: 320,
+        height: 180,
       });
 
-      // Salin stylesheets ke pipWindow
-      [...document.styleSheets].forEach((sheet) => {
-        try {
-          const cssRules = [...sheet.cssRules].map((rule) => rule.cssText).join("");
-          const styleEl = win.document.createElement("style");
-          styleEl.textContent = cssRules;
-          win.document.head.appendChild(styleEl);
-        } catch {
-          if (sheet.href) {
-            const linkEl = win.document.createElement("link");
-            linkEl.rel = "stylesheet";
-            linkEl.type = sheet.type;
-            linkEl.media = sheet.media.mediaText;
-            linkEl.href = sheet.href;
-            win.document.head.appendChild(linkEl);
+      // 1. Salin atribut class, style, dan data-* dari <html>
+      Array.from(document.documentElement.attributes).forEach((attr) => {
+        if (attr.name === "class" || attr.name === "style" || attr.name.startsWith("data-")) {
+          try {
+            win.document.documentElement.setAttribute(attr.name, attr.value);
+          } catch {
+            // Abaikan error pada atribut tertentu
           }
         }
       });
 
-      // Salin mode dark/light
-      win.document.documentElement.className = document.documentElement.className;
-
-      win.addEventListener("pagehide", () => {
-        setPipWindow(null);
+      // 2. Salin atribut class, style, dan data-* dari <body>
+      Array.from(document.body.attributes).forEach((attr) => {
+        if (attr.name === "class" || attr.name === "style" || attr.name.startsWith("data-")) {
+          try {
+            win.document.body.setAttribute(attr.name, attr.value);
+          } catch {
+            // Abaikan error pada atribut tertentu
+          }
+        }
       });
+
+      // 3. Salin styleSheets: setiap styleSheet dibungkus try/catch sendiri
+      Array.from(document.styleSheets).forEach((sheet) => {
+        try {
+          if (sheet.cssRules) {
+            const cssRules = Array.from(sheet.cssRules)
+              .map((rule) => rule.cssText)
+              .join("\n");
+            const styleEl = win.document.createElement("style");
+            styleEl.textContent = cssRules;
+            win.document.head.appendChild(styleEl);
+            return;
+          }
+        } catch {
+          // Cross-origin atau security error saat membaca sheet.cssRules
+        }
+
+        if (sheet.href) {
+          try {
+            const linkEl = win.document.createElement("link");
+            linkEl.rel = "stylesheet";
+            if (sheet.type) linkEl.type = sheet.type;
+            if (sheet.media?.mediaText) linkEl.media = sheet.media.mediaText;
+            linkEl.href = sheet.href;
+            win.document.head.appendChild(linkEl);
+          } catch (err) {
+            console.warn("Gagal menyalin link stylesheet ke PiP:", sheet.href, err);
+          }
+        }
+      });
+
+      // 4. Salin semua <style> di head (mode dev menyisipkan gaya sebagai tag style)
+      Array.from(document.head.querySelectorAll("style")).forEach((styleEl) => {
+        try {
+          if (styleEl.textContent && styleEl.textContent.trim().length > 0) {
+            const clone = styleEl.cloneNode(true) as HTMLStyleElement;
+            win.document.head.appendChild(clone);
+          }
+        } catch (err) {
+          console.warn("Gagal menyalin tag style ke PiP:", err);
+        }
+      });
+
+      // 5. Salin adoptedStyleSheets bila didukung
+      if ("adoptedStyleSheets" in document && "adoptedStyleSheets" in win.document) {
+        try {
+          win.document.adoptedStyleSheets = [...document.adoptedStyleSheets];
+        } catch (err) {
+          console.warn("Gagal menyalin adoptedStyleSheets ke PiP:", err);
+        }
+      }
+
+      // 6. Style inline minimal pada body PiP dari computed style body utama
+      try {
+        const bodyComputed = window.getComputedStyle(document.body);
+        const htmlComputed = window.getComputedStyle(document.documentElement);
+        const isDark = document.documentElement.classList.contains("dark");
+
+        const bgColor =
+          bodyComputed.backgroundColor && bodyComputed.backgroundColor !== "rgba(0, 0, 0, 0)"
+            ? bodyComputed.backgroundColor
+            : htmlComputed.backgroundColor && htmlComputed.backgroundColor !== "rgba(0, 0, 0, 0)"
+            ? htmlComputed.backgroundColor
+            : isDark
+            ? "#09090b"
+            : "#ffffff";
+
+        const textColor =
+          bodyComputed.color || (isDark ? "#f4f4f5" : "#09090b");
+        const fontFamily = bodyComputed.fontFamily || "system-ui, -apple-system, sans-serif";
+
+        win.document.body.style.margin = "0";
+        win.document.body.style.padding = "0";
+        win.document.body.style.backgroundColor = bgColor;
+        win.document.body.style.color = textColor;
+        win.document.body.style.fontFamily = fontFamily;
+        win.document.body.style.width = "100vw";
+        win.document.body.style.height = "100vh";
+        win.document.body.style.overflow = "hidden";
+      } catch (err) {
+        console.warn("Gagal mengatur inline style body PiP:", err);
+      }
+
+      // 7. Buat container dengan pipWindow.document.createElement dan pasang ke body PiP sebelum merender
+      let container = win.document.getElementById("pip-root");
+      if (!container) {
+        container = win.document.createElement("div");
+        container.id = "pip-root";
+        container.style.width = "100%";
+        container.style.height = "100%";
+        container.style.display = "flex";
+        container.style.flexDirection = "column";
+        win.document.body.appendChild(container);
+      }
+
+      // 8. Event listener pembersihan pada pagehide
+      const handlePageHide = () => {
+        setPipWindow(null);
+      };
+      win.addEventListener("pagehide", handlePageHide);
+
+      // Tutup PiP jika tab utama ditutup
+      const handleMainUnload = () => {
+        try {
+          if (!win.closed) win.close();
+        } catch {
+          // Abaikan
+        }
+      };
+      window.addEventListener("pagehide", handleMainUnload, { once: true });
 
       setPipWindow(win);
       return true;
