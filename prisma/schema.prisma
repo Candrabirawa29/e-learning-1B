@@ -369,6 +369,8 @@ model FocusSession {
   startedAt       DateTime
   lastResumedAt   DateTime?
   accumulatedSec  Int                @default(0)
+  lastSeenAt      DateTime?
+  isCorrected     Boolean            @default(false)
   endedAt         DateTime?
   status          FocusSessionStatus @default(RUNNING)
   note            String?
@@ -400,6 +402,11 @@ model StudyPreference {
   floatMode          FloatMode      @default(IN_APP)
   alertIntensity     AlertIntensity @default(NORMAL)
   soundVolume        Int            @default(80)
+  lastCourseId       String?
+  lastTaskId         String?
+  lastMode           FocusMode?
+  autoStartBreak     Boolean        @default(true)
+  autoStartNextFocus Boolean        @default(false)
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 

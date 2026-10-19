@@ -225,6 +225,7 @@ export async function getSessionCompletionRatio(
     FROM "focus_sessions"
     WHERE "userId" = ${userId}
       AND "status" != 'CANCELLED'
+      AND "mode" = 'FOCUS'
       AND "startedAt" >= ${startTimestamp}::timestamptz
       AND "startedAt" <= ${endTimestamp}::timestamptz
     GROUP BY "status";
@@ -232,19 +233,18 @@ export async function getSessionCompletionRatio(
 
   let completedCount = 0;
   let stoppedEarlyCount = 0;
-  let startedCount = 0;
 
   for (const c of counts) {
     const n = Number(c.count) || 0;
-    startedCount += n;
     if (c.status === "COMPLETED") completedCount += n;
     if (c.status === "STOPPED_EARLY") stoppedEarlyCount += n;
   }
 
-  const completionRatio = startedCount > 0 ? Math.round((completedCount / startedCount) * 100) : 100;
+  const totalRelevant = completedCount + stoppedEarlyCount;
+  const completionRatio = totalRelevant > 0 ? Math.round((completedCount / totalRelevant) * 100) : 100;
 
   return {
-    startedCount,
+    startedCount: totalRelevant,
     completedCount,
     stoppedEarlyCount,
     completionRatio,

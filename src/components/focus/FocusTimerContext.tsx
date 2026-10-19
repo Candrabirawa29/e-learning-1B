@@ -6,25 +6,34 @@ import {
   startFocusSessionAction,
   pauseFocusSessionAction,
   resumeFocusSessionAction,
-  completeFocusSessionAction,
-  stopEarlyFocusSessionAction,
-  cancelFocusSessionAction,
+  endFocusSessionAction,
+  discardFocusSessionAction,
   extendFocusSessionAction,
+  heartbeatFocusSessionAction,
+  getTodayCompletedCyclesAction,
   getStudyPreferencesAction,
+  updateStudyPreferencesAction,
+  updateActiveSessionContextAction,
+  updateSessionNoteAction,
 } from "@/actions/focus";
 import {
   ActiveFocusSessionDto,
   StudyPreferenceDto,
   FloatMode,
   AlertIntensity,
+  HEARTBEAT_INTERVAL_MS,
 } from "@/types/focus";
 import { FocusMode, FocusSessionStatus } from "@prisma/client";
-import { soundEffects } from "@/lib/focus/sounds";
+import {
+  soundEffects,
+  startRepeatingAlarm,
+  stopRepeatingAlarm,
+  playAlarmSample,
+} from "@/lib/focus/sounds";
 import { resolveFocusSessionProgress } from "@/lib/focus/session-logic";
-import { PictureInPicturePortal } from "./PictureInPicturePortal";
 import { toast } from "sonner";
 
-export type BreakType = "NONE" | "SHORT_BREAK" | "LONG_BREAK";
+export type BreakType = "SHORT_BREAK" | "LONG_BREAK" | "NONE";
 
 export interface ClientBreakState {
   type: BreakType;
@@ -34,6 +43,17 @@ export interface ClientBreakState {
   status: "RUNNING" | "PAUSED" | "COMPLETED";
 }
 
+export interface FocusSummaryData {
+  id: string;
+  status: FocusSessionStatus;
+  focusSec: number;
+  plannedSec: number;
+  mode: FocusMode;
+  note: string | null;
+  course?: { id: string; name: string; code: string | null } | null;
+  task?: { id: string; title: string } | null;
+}
+
 interface FocusTimerContextType {
   activeSession: ActiveFocusSessionDto | null;
   breakState: ClientBreakState;
@@ -41,7 +61,17 @@ interface FocusTimerContextType {
   completedCycles: number;
   isLoading: boolean;
 
-  // Computed live times (updated via accurate wall-clock timestamp delta)
+  // Selected context (Course, Task, Mode)
+  selectedCourseId: string | null;
+  selectedTaskId: string | null;
+  selectedMode: FocusMode;
+  changeContext: (data: {
+    courseId?: string | null;
+    taskId?: string | null;
+    mode?: FocusMode;
+  }) => Promise<void>;
+
+  // Computed live times (updated via wall-clock timestamp delta)
   elapsedSec: number;
   focusSec: number;
   remainingSec: number;
@@ -56,20 +86,28 @@ interface FocusTimerContextType {
   stopAlarm: () => void;
   playTestAlarm: (intensity?: AlertIntensity, volume?: number) => void;
 
-  // Actions
-  startFocus: (params: {
-    mode: FocusMode;
-    plannedSec: number;
+  // Summary state after session ends
+  summarySession: FocusSummaryData | null;
+  dismissSummary: () => void;
+  saveSummaryNote: (note: string) => Promise<void>;
+
+  // Session Actions
+  startFocus: (overrides?: {
+    mode?: FocusMode;
+    plannedSec?: number;
     courseId?: string | null;
     taskId?: string | null;
-    note?: string | null;
   }) => Promise<boolean>;
   pause: () => Promise<void>;
   resume: () => Promise<void>;
+  endSession: (note?: string) => Promise<{ action: "SAVED" | "DISCARDED"; status?: FocusSessionStatus | null }>;
+  discardSession: () => Promise<void>;
+  extendFocus: () => Promise<void>;
+
+  // Backward compatibility aliases
   complete: (note?: string) => Promise<void>;
   stopEarly: (note?: string) => Promise<void>;
   cancel: () => Promise<void>;
-  extendFocus: () => Promise<void>;
 
   // Break actions
   startBreak: (type: "SHORT_BREAK" | "LONG_BREAK") => void;
@@ -92,6 +130,7 @@ interface FocusTimerContextType {
   // Picture-in-Picture
   isPipSupported: boolean;
   isPipActive: boolean;
+  pipWindow: Window | null;
   requestPip: () => Promise<boolean>;
   closePip: () => void;
 
@@ -102,7 +141,6 @@ interface FocusTimerContextType {
 const FocusTimerContext = React.createContext<FocusTimerContextType | null>(null);
 
 const STORAGE_KEY_BREAK = "class1b_focus_break_state";
-const STORAGE_KEY_CYCLES = "class1b_focus_completed_cycles";
 const STORAGE_KEY_SOUND = "class1b_focus_sound_enabled";
 const STORAGE_KEY_NOTIF = "class1b_focus_notif_enabled";
 
@@ -131,6 +169,14 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
   const [completedCycles, setCompletedCycles] = React.useState<number>(0);
   const [isLoading, setIsLoading] = React.useState<boolean>(true);
 
+  // Selected context (Course / Task / Mode)
+  const [selectedCourseId, setSelectedCourseId] = React.useState<string | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = React.useState<string | null>(null);
+  const [selectedMode, setSelectedMode] = React.useState<FocusMode>(FocusMode.FOCUS);
+
+  // Summary state after session ends
+  const [summarySession, setSummarySession] = React.useState<FocusSummaryData | null>(null);
+
   // Sound & Notification Preferences
   const [soundEnabled, setSoundEnabledState] = React.useState<boolean>(true);
   const [notificationsEnabled, setNotificationsEnabledState] = React.useState<boolean>(false);
@@ -152,11 +198,21 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
   // Current tick timestamp for real-time reactive calculations
   const [nowMs, setNowMs] = React.useState<number>(0);
 
-  // Track if completion sound/notif was already fired for this specific session
+  // Track if completion alarm was already fired for this specific session
   const alarmTriggeredSessionIdRef = React.useRef<string | null>(null);
   const notifiedBreakRef = React.useRef<boolean>(false);
 
-  // 1. Initial Load & PiP Support Check
+  // Forward ref for startFocus to allow safe calling before lexical declaration
+  const startFocusRef = React.useRef<
+    (overrides?: {
+      mode?: FocusMode;
+      plannedSec?: number;
+      courseId?: string | null;
+      taskId?: string | null;
+    }) => Promise<boolean>
+  >(async () => false);
+
+  // 1. Initial Load: active session, preferences, today's cycles from DB
   React.useEffect(() => {
     setNowMs(Date.now());
     let mounted = true;
@@ -169,9 +225,6 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
 
       const savedNotif = localStorage.getItem(STORAGE_KEY_NOTIF);
       if (savedNotif !== null) setNotificationsEnabledState(savedNotif === "true");
-
-      const savedCycles = localStorage.getItem(STORAGE_KEY_CYCLES);
-      if (savedCycles) setCompletedCycles(parseInt(savedCycles, 10) || 0);
 
       const savedBreak = localStorage.getItem(STORAGE_KEY_BREAK);
       if (savedBreak) {
@@ -188,13 +241,25 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
 
     async function init() {
       try {
-        const [active, pref] = await Promise.all([
+        const [active, pref, cyclesToday] = await Promise.all([
           getActiveFocusSessionAction(),
           getStudyPreferencesAction(),
+          getTodayCompletedCyclesAction(),
         ]);
         if (mounted) {
           setActiveSession(active);
           setPreferences(pref);
+          setCompletedCycles(cyclesToday);
+
+          if (active) {
+            setSelectedCourseId(active.courseId);
+            setSelectedTaskId(active.taskId);
+            setSelectedMode(active.mode);
+          } else if (pref) {
+            setSelectedCourseId(pref.lastCourseId ?? null);
+            setSelectedTaskId(pref.lastTaskId ?? null);
+            setSelectedMode(pref.lastMode ?? FocusMode.FOCUS);
+          }
         }
       } catch (err) {
         console.error("Gagal memuat sesi fokus aktif:", err);
@@ -217,13 +282,6 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
     }
   }, [breakState]);
 
-  // Save cycles to localStorage
-  React.useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem(STORAGE_KEY_CYCLES, String(completedCycles));
-    }
-  }, [completedCycles]);
-
   const setSoundEnabled = (enabled: boolean) => {
     setSoundEnabledState(enabled);
     if (typeof window !== "undefined") {
@@ -244,7 +302,6 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
   };
 
   // Clock tick & Visibility/Focus listeners
-  // Menggunakan timestamp wall-clock, diperbarui tiap 500ms dan saat tab kembali aktif
   React.useEffect(() => {
     const updateTick = () => {
       setNowMs(Date.now());
@@ -269,7 +326,22 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", onWindowFocus);
     };
-  }, [activeSession?.status, breakState.type, breakState.status]);
+  }, []);
+
+  // Heartbeat sender: every 30 seconds while session is RUNNING
+  const activeSessionId = activeSession?.id;
+  const activeSessionStatus = activeSession?.status;
+  React.useEffect(() => {
+    if (!activeSessionId || activeSessionStatus !== FocusSessionStatus.RUNNING) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      heartbeatFocusSessionAction(activeSessionId).catch(() => {});
+    }, HEARTBEAT_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [activeSessionId, activeSessionStatus]);
 
   // Fire desktop notification helper (with requireInteraction)
   const triggerDesktopNotification = React.useCallback(
@@ -323,6 +395,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
         startedAt: activeSession.startedAt,
         lastResumedAt: activeSession.lastResumedAt,
         accumulatedSec: activeSession.accumulatedSec,
+        lastSeenAt: activeSession.lastSeenAt,
         status: activeSession.status,
       },
       nowMs > 0
@@ -345,89 +418,48 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
     } else {
       progressPercent =
         activeSession.plannedSec > 0
-          ? Math.min(100, Math.round((evaluation.focusSec / activeSession.plannedSec) * 100))
+          ? Math.min(100, Math.round((focusSec / activeSession.plannedSec) * 100))
           : 100;
     }
 
-    // Auto-complete lazy trigger
+    // Lazy client status sync if auto-completed (>10m overdue)
     if (evaluation.isAutoCompleted && activeSession.status === FocusSessionStatus.RUNNING) {
       setActiveSession((prev) =>
         prev
           ? {
               ...prev,
               status: FocusSessionStatus.COMPLETED,
-              accumulatedSec: prev.plannedSec,
+              accumulatedSec: activeSession.plannedSec,
             }
           : null
       );
-      setIsAlarmActive(false);
-      soundEffects.stopRepeatingAlarm();
     }
   }
 
-  // Trigger audio alarm and desktop notification on completion
-  React.useEffect(() => {
-    if (isBreakActive && remainingSec === 0 && !notifiedBreakRef.current) {
-      notifiedBreakRef.current = true;
-      if (soundEnabled) {
-        soundEffects.playBreakComplete(preferences?.soundVolume ?? 80);
-      }
-      triggerDesktopNotification(
-        "Istirahat Selesai! ☕",
-        "Waktu istirahat Anda telah usai. Siap untuk kembali fokus?"
-      );
-      toast.success("Waktu istirahat selesai! Siap untuk kembali fokus?", {
-        id: "break-finish-toast",
-      });
-      setBreakState((prev) => ({ ...prev, status: "COMPLETED" }));
-    } else if (
-      !isBreakActive &&
-      activeSession &&
-      activeSession.mode !== FocusMode.STOPWATCH &&
-      isTargetReached &&
-      alarmTriggeredSessionIdRef.current !== activeSession.id
-    ) {
-      alarmTriggeredSessionIdRef.current = activeSession.id;
-      setIsAlarmActive(true);
+  // Alarm sound & Flashing Tab Title
+  const stopAlarm = React.useCallback(() => {
+    setIsAlarmActive(false);
+    stopRepeatingAlarm();
+  }, []);
 
-      if (soundEnabled) {
-        soundEffects.startRepeatingAlarm(
-          preferences?.alertIntensity || "NORMAL",
-          preferences?.soundVolume ?? 80,
-          () => setIsAlarmActive(false)
-        );
-      }
+  const playTestAlarm = React.useCallback(
+    (intensity?: AlertIntensity, volume?: number) => {
+      const effIntensity = intensity || preferences?.alertIntensity || AlertIntensity.NORMAL;
+      const effVolume = volume !== undefined ? volume : (preferences?.soundVolume ?? 80);
+      playAlarmSample(effIntensity, effVolume);
+    },
+    [preferences?.alertIntensity, preferences?.soundVolume]
+  );
 
-      triggerDesktopNotification(
-        "Target Fokus Tercapai! 🎉",
-        "Hebat! Sesi fokus Anda telah selesai. Mulai istirahat atau perpanjang fokus."
-      );
-      toast.success("Target fokus tercapai! Sesi terkunci. Silakan pilih istirahat atau lanjut fokus.", {
-        id: "focus-target-toast",
-      });
-    }
-  }, [
-    isBreakActive,
-    remainingSec,
-    activeSession,
-    isTargetReached,
-    soundEnabled,
-    preferences?.alertIntensity,
-    preferences?.soundVolume,
-    triggerDesktopNotification,
-  ]);
-
-  // Judul tab berkedip saat alarm aktif
+  // Tab title flash effect
   React.useEffect(() => {
     if (!isAlarmActive) return;
-    const originalTitle = document.title;
-    let flashState = false;
 
+    let flag = false;
+    const originalTitle = document.title;
     const interval = setInterval(() => {
-      flashState = !flashState;
-      document.title = flashState
-        ? "⏰ [00:00] Fokus Selesai! - Class 1-B"
-        : originalTitle;
+      document.title = flag ? "🔔 Fokus Selesai!" : originalTitle;
+      flag = !flag;
     }, 1000);
 
     return () => {
@@ -436,33 +468,106 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
     };
   }, [isAlarmActive]);
 
-  // Stop alarm action
-  const stopAlarm = React.useCallback(() => {
-    setIsAlarmActive(false);
-    soundEffects.stopRepeatingAlarm();
-  }, []);
+  // Trigger completion alarm when target reached in FOCUS mode
+  React.useEffect(() => {
+    if (
+      activeSession &&
+      activeSession.mode === FocusMode.FOCUS &&
+      isTargetReached &&
+      alarmTriggeredSessionIdRef.current !== activeSession.id
+    ) {
+      alarmTriggeredSessionIdRef.current = activeSession.id;
 
-  // Play test alarm sample
-  const playTestAlarm = (intensity?: AlertIntensity, volume?: number) => {
-    soundEffects.playAlarmSample(
-      intensity || preferences?.alertIntensity || "NORMAL",
-      volume ?? preferences?.soundVolume ?? 80
-    );
+      if (soundEnabled) {
+        setIsAlarmActive(true);
+        startRepeatingAlarm(
+          preferences?.alertIntensity || AlertIntensity.NORMAL,
+          preferences?.soundVolume ?? 80,
+          () => {
+            setIsAlarmActive(false);
+          }
+        );
+      }
+
+      triggerDesktopNotification(
+        "Sesi Fokus Selesai! 🎉",
+        `Target fokus ${Math.round(activeSession.plannedSec / 60)} menit telah tercapai.`
+      );
+    }
+  }, [
+    activeSession,
+    isTargetReached,
+    soundEnabled,
+    preferences?.alertIntensity,
+    preferences?.soundVolume,
+    triggerDesktopNotification,
+  ]);
+
+  // Trigger break completion notification
+  React.useEffect(() => {
+    if (
+      isBreakActive &&
+      remainingSec === 0 &&
+      breakState.status === "RUNNING" &&
+      !notifiedBreakRef.current
+    ) {
+      notifiedBreakRef.current = true;
+      if (soundEnabled) soundEffects.playSessionComplete(preferences?.soundVolume ?? 80);
+      triggerDesktopNotification(
+        "Waktu Istirahat Selesai! ☕",
+        "Siap untuk memulai siklus fokus berikutnya?"
+      );
+
+      // Selesaikan istirahat
+      setBreakState((prev) => ({
+        ...prev,
+        status: "COMPLETED",
+        accumulatedSec: prev.plannedSec,
+      }));
+
+      // Jika autoStartNextFocus aktif, mulai sesi fokus berikutnya secara otomatis
+      if (preferences?.autoStartNextFocus) {
+        startFocusRef.current().catch(() => {});
+      }
+    }
+  }, [
+    isBreakActive,
+    remainingSec,
+    breakState.status,
+    soundEnabled,
+    preferences?.soundVolume,
+    preferences?.autoStartNextFocus,
+    triggerDesktopNotification,
+  ]);
+
+  // Request Notification permission
+  const requestNotificationPermission = async (): Promise<boolean> => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      const permission = await Notification.requestPermission();
+      const granted = permission === "granted";
+      setNotificationsEnabledState(granted);
+      localStorage.setItem(STORAGE_KEY_NOTIF, String(granted));
+      if (granted) toast.success("Notifikasi sistem diaktifkan");
+      else toast.info("Izin notifikasi belum diberikan");
+      return granted;
+    }
+    return false;
   };
 
-  // Picture-in-Picture controls
+  // Picture-in-Picture window management
   const requestPip = async (): Promise<boolean> => {
-    if (!isPipSupported || !window.documentPictureInPicture) {
-      toast.error("Browser Anda belum mendukung Document Picture-in-Picture.");
+    if (typeof window === "undefined" || !("documentPictureInPicture" in window)) {
+      toast.error("Browser tidak mendukung Document Picture-in-Picture");
       return false;
     }
 
     try {
       if (pipWindow) {
-        pipWindow.close();
+        pipWindow.focus();
+        return true;
       }
 
-      const win = await window.documentPictureInPicture.requestWindow({
+      const win = await window.documentPictureInPicture!.requestWindow({
         width: 340,
         height: 190,
       });
@@ -509,13 +614,66 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
     }
   };
 
-  // Action: Start Focus
-  const startFocus = async (params: {
-    mode: FocusMode;
-    plannedSec: number;
+  // Action: Change Context (Course, Task, Mode)
+  const changeContext = async (data: {
     courseId?: string | null;
     taskId?: string | null;
-    note?: string | null;
+    mode?: FocusMode;
+  }) => {
+    if (data.courseId !== undefined) setSelectedCourseId(data.courseId);
+    if (data.taskId !== undefined) setSelectedTaskId(data.taskId);
+    if (data.mode !== undefined) setSelectedMode(data.mode);
+
+    if (activeSession) {
+      try {
+        const res = await updateActiveSessionContextAction(activeSession.id, data);
+        if (res.success && res.session) {
+          setActiveSession(res.session);
+          toast.info("Perubahan konteks berlaku untuk sesi aktif ini");
+        }
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : "Gagal memperbarui konteks sesi");
+      }
+    } else {
+      // Simpan ke preferensi bila belum ada sesi aktif
+      try {
+        await updateStudyPreferencesAction({
+          lastCourseId: data.courseId,
+          lastTaskId: data.taskId,
+          lastMode: data.mode,
+        });
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  // Action: Start Break helper
+  const startBreak = (type: "SHORT_BREAK" | "LONG_BREAK") => {
+    stopAlarm();
+    if (soundEnabled) soundEffects.playClick();
+    const plannedSec =
+      type === "LONG_BREAK"
+        ? preferences?.longBreakDuration || 900
+        : preferences?.shortBreakDuration || 300;
+
+    notifiedBreakRef.current = false;
+    setBreakState({
+      type,
+      plannedSec,
+      accumulatedSec: 0,
+      lastResumedAt: Date.now(),
+      status: "RUNNING",
+    });
+    toast.success(`Waktu ${type === "LONG_BREAK" ? "istirahat panjang" : "istirahat pendek"} dimulai`);
+  };
+
+  // Action: Start Focus
+  const startFocus = async (overrides?: {
+    mode?: FocusMode;
+    plannedSec?: number;
+    courseId?: string | null;
+    taskId?: string | null;
   }): Promise<boolean> => {
     try {
       stopAlarm();
@@ -529,18 +687,29 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
         status: "COMPLETED",
       });
 
+      const mode = overrides?.mode ?? selectedMode ?? preferences?.lastMode ?? FocusMode.FOCUS;
+      const plannedSec = overrides?.plannedSec ?? preferences?.focusDuration ?? 1500;
+      const courseId =
+        overrides?.courseId !== undefined
+          ? overrides.courseId
+          : selectedCourseId ?? preferences?.lastCourseId ?? null;
+      const taskId =
+        overrides?.taskId !== undefined
+          ? overrides.taskId
+          : selectedTaskId ?? preferences?.lastTaskId ?? null;
+
       const clientSessionId = `fs_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
       const res = await startFocusSessionAction({
         clientSessionId,
-        mode: params.mode,
-        plannedSec: params.plannedSec,
-        courseId: params.courseId,
-        taskId: params.taskId,
-        note: params.note,
+        mode,
+        plannedSec,
+        courseId,
+        taskId,
       });
 
       if (res.success && res.session) {
         setActiveSession(res.session);
+        setSummarySession(null);
         alarmTriggeredSessionIdRef.current = null;
         toast.success("Sesi fokus berhasil dimulai!");
         return true;
@@ -551,6 +720,10 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
       return false;
     }
   };
+
+  React.useEffect(() => {
+    startFocusRef.current = startFocus;
+  });
 
   // Action: Pause Focus
   const pause = async () => {
@@ -615,110 +788,120 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
     }
   };
 
-  // Action: Complete Focus
-  const complete = async (note?: string) => {
-    if (!activeSession) return;
+  // Action: End Session (Single "Akhiri" button)
+  const endSession = async (
+    note?: string
+  ): Promise<{ action: "SAVED" | "DISCARDED"; status?: FocusSessionStatus | null }> => {
+    if (!activeSession) return { action: "DISCARDED" };
     try {
       stopAlarm();
+      const res = await endFocusSessionAction(activeSession.id, note);
+
+      if (res.action === "DISCARDED") {
+        setActiveSession(null);
+        alarmTriggeredSessionIdRef.current = null;
+        toast.info("Terlalu singkat, tidak dicatat");
+        return { action: "DISCARDED" };
+      }
+
+      // Sesi tersimpan
       if (soundEnabled) soundEffects.playSessionComplete(preferences?.soundVolume ?? 80);
-      await completeFocusSessionAction(activeSession.id, note);
       setActiveSession(null);
       alarmTriggeredSessionIdRef.current = null;
 
-      // Increment cycle count
-      const nextCycle = completedCycles + 1;
-      setCompletedCycles(nextCycle);
+      // Update summary session untuk layar ringkasan
+      if (res.session) {
+        setSummarySession({
+          id: res.session.id,
+          status: res.status,
+          focusSec: res.accumulatedSec,
+          plannedSec: res.session.plannedSec,
+          mode: res.session.mode,
+          note: res.session.note,
+          course: res.session.course,
+          task: res.session.task,
+        });
+      }
 
-      const longInterval = preferences?.longBreakInterval || 4;
-      const isLongBreak = nextCycle % longInterval === 0;
-      const breakType = isLongBreak ? "LONG_BREAK" : "SHORT_BREAK";
+      // Refresh siklus hari ini dari server
+      const todayCycles = await getTodayCompletedCyclesAction();
+      setCompletedCycles(todayCycles);
 
-      toast.success("Sesi fokus selesai dan berhasil dicatat!", {
-        action: {
-          label: isLongBreak ? "Mulai Istirahat Panjang" : "Mulai Istirahat",
-          onClick: () => startBreak(breakType),
-        },
-      });
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Gagal menyelesaikan sesi");
-    }
-  };
+      // Auto start break jika diaktifkan di preferensi
+      if (preferences?.autoStartBreak ?? true) {
+        const longInterval = preferences?.longBreakInterval || 4;
+        const isLongBreak = todayCycles > 0 && todayCycles % longInterval === 0;
+        startBreak(isLongBreak ? "LONG_BREAK" : "SHORT_BREAK");
+      }
 
-  // Action: Stop Early
-  const stopEarly = async (note?: string) => {
-    if (!activeSession) return;
-    try {
-      stopAlarm();
-      if (soundEnabled) soundEffects.playClick();
-      await stopEarlyFocusSessionAction(activeSession.id, note);
-      setActiveSession(null);
-      alarmTriggeredSessionIdRef.current = null;
-      toast.info("Sesi diakhiri lebih awal. Waktu fokus tetap tersimpan!");
+      toast.success(
+        res.status === FocusSessionStatus.COMPLETED
+          ? "Target tercapai! Sesi berhasil dicatat."
+          : "Sesi dihentikan lebih awal dan durasi fokus berhasil dicatat."
+      );
+
+      return { action: "SAVED", status: res.status };
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Gagal mengakhiri sesi");
+      return { action: "DISCARDED" };
     }
   };
 
-  // Action: Cancel Focus
-  const cancel = async () => {
+  // Action: Discard Session ("Buang sesi")
+  const discardSession = async () => {
     if (!activeSession) return;
     try {
       stopAlarm();
-      if (soundEnabled) soundEffects.playClick();
-      await cancelFocusSessionAction(activeSession.id);
+      await discardFocusSessionAction(activeSession.id);
       setActiveSession(null);
+      setSummarySession(null);
       alarmTriggeredSessionIdRef.current = null;
-      toast.info("Sesi fokus dibatalkan.");
+      toast.info("Sesi telah dibuang dan tidak dicatat");
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Gagal membatalkan sesi");
+      toast.error(err instanceof Error ? err.message : "Gagal membuang sesi");
     }
   };
 
-  // Break Actions
-  const startBreak = (type: "SHORT_BREAK" | "LONG_BREAK") => {
-    stopAlarm();
-    if (soundEnabled) soundEffects.playClick();
-    const duration =
-      type === "LONG_BREAK"
-        ? preferences?.longBreakDuration || 900
-        : preferences?.shortBreakDuration || 300;
-
-    notifiedBreakRef.current = false;
-    setBreakState({
-      type,
-      plannedSec: duration,
-      accumulatedSec: 0,
-      lastResumedAt: Date.now(),
-      status: "RUNNING",
-    });
-
-    toast.info(type === "LONG_BREAK" ? "Istirahat panjang dimulai (15m)" : "Istirahat pendek dimulai (5m)");
+  // Backward compatibility aliases
+  const complete = async (note?: string) => {
+    await endSession(note);
+  };
+  const stopEarly = async (note?: string) => {
+    await endSession(note);
+  };
+  const cancel = async () => {
+    await discardSession();
   };
 
+  // Action: Break actions
   const pauseBreak = () => {
-    if (breakState.type === "NONE" || breakState.status !== "RUNNING") return;
-    const now = Date.now();
-    const additional = breakState.lastResumedAt ? Math.floor((now - breakState.lastResumedAt) / 1000) : 0;
+    if (!isBreakActive || breakState.status !== "RUNNING") return;
+    if (soundEnabled) soundEffects.playClick();
+    let current = breakState.accumulatedSec;
+    if (breakState.lastResumedAt) {
+      current += Math.max(0, Math.floor((Date.now() - breakState.lastResumedAt) / 1000));
+    }
     setBreakState((prev) => ({
       ...prev,
-      accumulatedSec: prev.accumulatedSec + additional,
+      accumulatedSec: current,
       lastResumedAt: null,
       status: "PAUSED",
     }));
-    toast.info("Istirahat dijeda");
   };
 
   const resumeBreak = () => {
-    if (breakState.type === "NONE" || breakState.status !== "PAUSED") return;
+    if (!isBreakActive || breakState.status !== "PAUSED") return;
+    if (soundEnabled) soundEffects.playClick();
     setBreakState((prev) => ({
       ...prev,
       lastResumedAt: Date.now(),
       status: "RUNNING",
     }));
-    toast.info("Istirahat dilanjutkan");
   };
 
   const skipBreak = () => {
+    if (!isBreakActive) return;
+    if (soundEnabled) soundEffects.playClick();
     setBreakState({
       type: "NONE",
       plannedSec: 300,
@@ -726,40 +909,31 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
       lastResumedAt: null,
       status: "COMPLETED",
     });
-    toast.info("Istirahat dilewati. Siap untuk sesi fokus berikutnya!");
+    toast.info("Waktu istirahat dilewati");
   };
 
-  // Request browser notification permission
-  const requestNotificationPermission = async (): Promise<boolean> => {
-    if (typeof window === "undefined" || !("Notification" in window)) {
-      toast.error("Browser Anda tidak mendukung notifikasi sistem");
-      return false;
-    }
-
+  // Action: Save Summary Note
+  const saveSummaryNote = async (note: string) => {
+    if (!summarySession) return;
     try {
-      const permission = await Notification.requestPermission();
-      const granted = permission === "granted";
-      setNotificationsEnabledState(granted);
-      localStorage.setItem(STORAGE_KEY_NOTIF, String(granted));
-
-      if (granted) {
-        toast.success("Izin notifikasi browser berhasil diaktifkan!");
-      } else {
-        toast.info("Notifikasi browser tidak diizinkan.");
-      }
-      return granted;
-    } catch {
-      toast.error("Gagal meminta izin notifikasi browser");
-      return false;
+      await updateSessionNoteAction(summarySession.id, note);
+      setSummarySession((prev) => (prev ? { ...prev, note } : null));
+      toast.success("Catatan berhasil disimpan!");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Gagal menyimpan catatan");
     }
+  };
+
+  const dismissSummary = () => {
+    setSummarySession(null);
   };
 
   const refreshActiveSession = async () => {
     try {
       const active = await getActiveFocusSessionAction();
       setActiveSession(active);
-    } catch (err) {
-      console.error(err);
+    } catch {
+      // ignore
     }
   };
 
@@ -767,63 +941,80 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
     try {
       const pref = await getStudyPreferencesAction();
       setPreferences(pref);
-    } catch (err) {
-      console.error(err);
+    } catch {
+      // ignore
     }
   };
 
-  const value: FocusTimerContextType = {
-    activeSession,
-    breakState,
-    preferences,
-    completedCycles,
-    isLoading,
-    elapsedSec,
-    focusSec,
-    remainingSec,
-    overdueSec,
-    isOverdue,
-    isTargetReached,
-    progressPercent,
-    isBreakActive,
-    isAlarmActive,
-    stopAlarm,
-    playTestAlarm,
-    startFocus,
-    pause,
-    resume,
-    complete,
-    stopEarly,
-    cancel,
-    extendFocus,
-    startBreak,
-    pauseBreak,
-    resumeBreak,
-    skipBreak,
-    soundEnabled,
-    setSoundEnabled,
-    soundVolume: preferences?.soundVolume ?? 80,
-    setSoundVolume,
-    alertIntensity: preferences?.alertIntensity ?? AlertIntensity.NORMAL,
-    setAlertIntensity,
-    floatMode: preferences?.floatMode ?? FloatMode.IN_APP,
-    setFloatMode,
-    notificationsEnabled,
-    requestNotificationPermission,
-    isPipSupported,
-    isPipActive: Boolean(pipWindow),
-    requestPip,
-    closePip,
-    refreshActiveSession,
-    refreshPreferences,
-  };
-
   return (
-    <FocusTimerContext.Provider value={value}>
+    <FocusTimerContext.Provider
+      value={{
+        activeSession,
+        breakState,
+        preferences,
+        completedCycles,
+        isLoading,
+
+        selectedCourseId,
+        selectedTaskId,
+        selectedMode,
+        changeContext,
+
+        elapsedSec,
+        focusSec,
+        remainingSec,
+        overdueSec,
+        isOverdue,
+        isTargetReached,
+        progressPercent,
+        isBreakActive,
+
+        isAlarmActive,
+        stopAlarm,
+        playTestAlarm,
+
+        summarySession,
+        dismissSummary,
+        saveSummaryNote,
+
+        startFocus,
+        pause,
+        resume,
+        endSession,
+        discardSession,
+        extendFocus,
+
+        complete,
+        stopEarly,
+        cancel,
+
+        startBreak,
+        pauseBreak,
+        resumeBreak,
+        skipBreak,
+
+        soundEnabled,
+        setSoundEnabled,
+        soundVolume: preferences?.soundVolume ?? 80,
+        setSoundVolume,
+        alertIntensity: preferences?.alertIntensity || AlertIntensity.NORMAL,
+        setAlertIntensity,
+        floatMode: preferences?.floatMode || FloatMode.IN_APP,
+        setFloatMode,
+        notificationsEnabled,
+        requestNotificationPermission,
+
+        isPipSupported,
+        isPipActive: Boolean(pipWindow),
+        pipWindow,
+        requestPip,
+        closePip,
+
+        refreshActiveSession,
+        refreshPreferences,
+      }}
+    >
       {children}
-      {isPipSupported && pipWindow && (
-        <PictureInPicturePortal pipWindow={pipWindow} />
-      )}
     </FocusTimerContext.Provider>
   );
 }

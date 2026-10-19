@@ -2,9 +2,7 @@
 
 import * as React from "react";
 import { FocusTimerDisplay } from "@/components/focus/FocusTimerDisplay";
-import { FocusSessionConfigDialog } from "@/components/focus/FocusSessionConfigDialog";
 import { FocusPreferenceDialog } from "@/components/focus/FocusPreferenceDialog";
-import { FocusCompleteModal } from "@/components/focus/FocusCompleteModal";
 import { FocusHistoryTable } from "@/components/focus/FocusHistoryTable";
 import { Button } from "@/components/ui/button";
 import { Settings2, BarChart2 } from "lucide-react";
@@ -28,16 +26,14 @@ interface FocusRoomClientProps {
 }
 
 export function FocusRoomClient({ courses, tasks }: FocusRoomClientProps) {
-  const [configOpen, setConfigOpen] = React.useState<boolean>(false);
   const [prefOpen, setPrefOpen] = React.useState<boolean>(false);
-  const [completeOpen, setCompleteOpen] = React.useState<boolean>(false);
 
   return (
     <div className="space-y-6">
       {/* Action Bar */}
       <div className="flex items-center justify-end gap-2">
         <Link href="/home/study-analytics">
-          <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5">
+          <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 cursor-pointer">
             <BarChart2 className="h-3.5 w-3.5" />
             <span>Lihat Analitik</span>
           </Button>
@@ -47,38 +43,23 @@ export function FocusRoomClient({ courses, tasks }: FocusRoomClientProps) {
           variant="outline"
           size="sm"
           onClick={() => setPrefOpen(true)}
-          className="h-8 text-xs gap-1.5"
+          className="h-8 text-xs gap-1.5 cursor-pointer"
         >
           <Settings2 className="h-3.5 w-3.5" />
           <span>Pengaturan Target</span>
         </Button>
       </div>
 
-      {/* Main Focus Timer Display */}
-      <FocusTimerDisplay
-        onOpenConfig={() => setConfigOpen(true)}
-        onOpenCompleteModal={() => setCompleteOpen(true)}
-      />
+      {/* Main Focus Timer Display with interactive context chips */}
+      <FocusTimerDisplay courses={courses} tasks={tasks} />
 
       {/* History Table */}
-      <FocusHistoryTable courses={courses} />
+      <FocusHistoryTable courses={courses} tasks={tasks} />
 
-      {/* Dialogs */}
-      <FocusSessionConfigDialog
-        open={configOpen}
-        onOpenChange={setConfigOpen}
-        courses={courses}
-        tasks={tasks}
-      />
-
+      {/* Preferences Dialog */}
       <FocusPreferenceDialog
         open={prefOpen}
         onOpenChange={setPrefOpen}
-      />
-
-      <FocusCompleteModal
-        open={completeOpen}
-        onOpenChange={setCompleteOpen}
       />
     </div>
   );

@@ -12,7 +12,7 @@ import {
   Sparkles,
   PlusCircle,
   BellOff,
-  CheckCircle2,
+  StopCircle,
 } from "lucide-react";
 
 interface PictureInPicturePortalProps {
@@ -34,7 +34,7 @@ export function PictureInPicturePortal({ pipWindow }: PictureInPicturePortalProp
     extendFocus,
     pause,
     resume,
-    complete,
+    endSession,
     pauseBreak,
     resumeBreak,
     startBreak,
@@ -77,7 +77,7 @@ export function PictureInPicturePortal({ pipWindow }: PictureInPicturePortalProp
     stopAlarm();
     const longInterval = preferences?.longBreakInterval || 4;
     const isLongBreak = (completedCycles + 1) % longInterval === 0;
-    complete();
+    endSession();
     startBreak(isLongBreak ? "LONG_BREAK" : "SHORT_BREAK");
   };
 
@@ -201,11 +201,11 @@ export function PictureInPicturePortal({ pipWindow }: PictureInPicturePortalProp
 
             {isFocus && (
               <button
-                onClick={() => complete()}
+                onClick={() => endSession()}
                 className="px-2.5 py-1 bg-muted hover:bg-muted/80 text-foreground rounded-md text-xs font-medium flex items-center gap-1 cursor-pointer transition-colors"
               >
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                <span>Selesai</span>
+                <StopCircle className="h-3.5 w-3.5 text-rose-500" />
+                <span>Akhiri</span>
               </button>
             )}
           </>

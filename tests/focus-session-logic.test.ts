@@ -4,6 +4,9 @@ import {
   resolveFocusSessionProgress,
   extendFocusSessionPlan,
   formatOverdueText,
+  deriveStatus,
+  getDerivedStatusLabel,
+  calculateCompletionRatio,
 } from "../src/lib/focus/session-logic";
 import { MAX_SESSION_SEC } from "../src/types/focus";
 
@@ -189,4 +192,63 @@ describe("Focus Session Transition & Time Accounting Rules", () => {
     assert.strictEqual(formatOverdueText(305), "+05:05 lewat");
     assert.strictEqual(formatOverdueText(3665), "+01:01:05 lewat");
   });
+
+  test("deriveStatus: status diturunkan murni dari angka (bukan tombol)", () => {
+    // 1. Di bawah 60 detik tidak disimpan (null)
+    assert.strictEqual(deriveStatus(0, 1500, "FOCUS"), null);
+    assert.strictEqual(deriveStatus(30, 1500, "FOCUS"), null);
+    assert.strictEqual(deriveStatus(59, 1500, "FOCUS"), null);
+    assert.strictEqual(deriveStatus(59, 0, "STOPWATCH"), null);
+
+    // 2. Antara 60 detik dan plannedSec = STOPPED_EARLY
+    assert.strictEqual(deriveStatus(60, 1500, "FOCUS"), "STOPPED_EARLY");
+    assert.strictEqual(deriveStatus(500, 1500, "FOCUS"), "STOPPED_EARLY");
+    assert.strictEqual(deriveStatus(1499, 1500, "FOCUS"), "STOPPED_EARLY");
+
+    // 3. focusSec >= plannedSec = COMPLETED
+    assert.strictEqual(deriveStatus(1500, 1500, "FOCUS"), "COMPLETED");
+    assert.strictEqual(deriveStatus(1800, 1500, "FOCUS"), "COMPLETED");
+
+    // 4. STOPWATCH: tidak punya target, jika >= 60 detik disimpan sebagai COMPLETED
+    assert.strictEqual(deriveStatus(60, 0, "STOPWATCH"), "COMPLETED");
+    assert.strictEqual(deriveStatus(2400, 0, "STOPWATCH"), "COMPLETED");
+
+    // 5. Label status
+    assert.strictEqual(getDerivedStatusLabel("COMPLETED"), "Target tercapai");
+    assert.strictEqual(getDerivedStatusLabel("STOPPED_EARLY"), "Berhenti lebih awal");
+    assert.strictEqual(getDerivedStatusLabel(null), "Terlalu singkat, tidak dicatat");
+  });
+
+  test("calculateCompletionRatio: COMPLETED / (COMPLETED + STOPPED_EARLY)", () => {
+    assert.strictEqual(calculateCompletionRatio(4, 1), 80); // 4 / 5 = 80%
+    assert.strictEqual(calculateCompletionRatio(3, 0), 100);
+    assert.strictEqual(calculateCompletionRatio(0, 2), 0);
+    assert.strictEqual(calculateCompletionRatio(0, 0), 100); // default jika belum ada sesi
+  });
+
+  test("Heartbeat stale: sesi RUNNING tanpa heartbeat > 10 menit difinalisasi pada lastSeenAt", () => {
+    const t0 = 1000000;
+    const plannedSec = 1500;
+    // Klien berhenti mengirim heartbeat di menit ke-15 (900s)
+    const tLastSeen = t0 + 900 * 1000;
+    // Server membaca sesi di menit ke-30 (1800s) -> selisih 15 menit (900s > 600s timeout)
+    const tNow = t0 + 1800 * 1000;
+
+    const session = {
+      mode: "FOCUS" as const,
+      plannedSec,
+      startedAt: t0,
+      lastResumedAt: t0,
+      accumulatedSec: 0,
+      lastSeenAt: tLastSeen,
+      status: "RUNNING" as const,
+    };
+
+    const evalStale = resolveFocusSessionProgress(session, tNow);
+    assert.strictEqual(evalStale.isHeartbeatStale, true, "Harus ditandai isHeartbeatStale");
+    assert.strictEqual(evalStale.effectiveEndMs, tLastSeen, "Waktu akhir harus tepat pada lastSeenAt");
+    assert.strictEqual(evalStale.focusSec, 900, "Durasi fokus harus dihitung hanya sampai lastSeenAt");
+    assert.strictEqual(evalStale.resolvedStatus, "STOPPED_EARLY", "900s < 1500s harus diturunkan jadi STOPPED_EARLY");
+  });
 });
+

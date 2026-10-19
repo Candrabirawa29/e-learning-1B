@@ -228,3 +228,19 @@ class SoundEffects {
 }
 
 export const soundEffects = new SoundEffects();
+
+export function startRepeatingAlarm(
+  intensity: AlertIntensityLevel = "NORMAL",
+  volumePercent: number = 80,
+  onAutoStop?: () => void
+) {
+  soundEffects.startRepeatingAlarm(intensity, volumePercent, onAutoStop);
+}
+
+export function stopRepeatingAlarm() {
+  soundEffects.stopRepeatingAlarm();
+}
+
+export function playAlarmSample(intensity: AlertIntensityLevel = "NORMAL", volumePercent: number = 80) {
+  soundEffects.playAlarmSample(intensity, volumePercent);
+}
