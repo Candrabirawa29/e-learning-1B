@@ -43,14 +43,21 @@ export default async function HomeTasksPage({
   // Filter tasks berdasarkan scope
   const taskWhereCondition = {
     classId: class1B.id,
-    ...(activeScope === "mine" && session.profile
-      ? {
-        OR: [
-          { targetType: "ALL" as const },
-          { assignments: { some: { profileId: session.profile.id } } },
-        ],
-      }
-      : {}),
+    AND: [
+      {
+        OR: [{ courseId: null }, { course: { kind: "REGULAR" as const, archivedAt: null } }],
+      },
+      ...(activeScope === "mine" && session.profile
+        ? [
+            {
+              OR: [
+                { targetType: "ALL" as const },
+                { assignments: { some: { profileId: session.profile.id } } },
+              ],
+            },
+          ]
+        : []),
+    ],
   };
 
   const [tasks, courses, members] = await Promise.all([
@@ -73,7 +80,7 @@ export default async function HomeTasksPage({
       orderBy: [{ deadline: "asc" }, { createdAt: "desc" }],
     }),
     prisma.course.findMany({
-      where: { classId: class1B.id },
+      where: { classId: class1B.id, kind: "REGULAR", archivedAt: null },
       orderBy: { name: "asc" },
       select: { id: true, name: true, code: true },
     }),

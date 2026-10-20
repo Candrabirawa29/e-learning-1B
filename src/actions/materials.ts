@@ -17,7 +17,12 @@ export async function getCloudinaryUploadSignatureAction(courseId: string) {
   }
   assertCanMutate(session);
 
-  if (!canUploadMaterial(session, courseId)) {
+  const course = await prisma.course.findUnique({ where: { id: courseId } });
+  if (!course || course.kind !== "REGULAR") {
+    throw new Error("Unggah berkas hanya didukung untuk mata kuliah resmi (REGULAR). Belajar Tambahan menggunakan tautan atau catatan.");
+  }
+
+  if (!canUploadMaterial(session, course)) {
     throw new Error("Akses ditolak: Anda tidak memiliki izin untuk mengunggah materi di mata kuliah ini.");
   }
 
@@ -45,8 +50,17 @@ export async function createMaterialAction(data: {
   }
   assertCanMutate(session);
 
-  if (!canUploadMaterial(session, data.courseId)) {
+  const course = await prisma.course.findUnique({ where: { id: data.courseId } });
+  if (!course) {
+    throw new Error("Mata kuliah tidak ditemukan.");
+  }
+
+  if (!canUploadMaterial(session, course)) {
     throw new Error("Akses ditolak: Anda tidak memiliki izin untuk menambahkan materi.");
+  }
+
+  if (course.kind === "EXTRA" && (data.provider === "CLOUDINARY" || data.fileUrl || data.publicId)) {
+    throw new Error("Materi Belajar Tambahan hanya mendukung link atau catatan, tanpa unggah file.");
   }
 
   const parsed = createMaterialSchema.parse(data);
@@ -117,6 +131,7 @@ export async function updateMaterialAction(
 
   const existing = await prisma.material.findUnique({
     where: { id: materialId },
+    include: { course: true },
   });
   if (!existing) {
     throw new Error("Materi tidak ditemukan.");
@@ -185,6 +200,7 @@ export async function deleteMaterialAction(materialId: string) {
 
   const material = await prisma.material.findUnique({
     where: { id: materialId },
+    include: { course: true },
   });
   if (!material) {
     throw new Error("Materi tidak ditemukan.");

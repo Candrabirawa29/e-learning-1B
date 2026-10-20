@@ -30,12 +30,14 @@ interface FocusPreferenceDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved?: () => void;
+  suggestedWeeklyTargetMin?: number | null;
 }
 
 export function FocusPreferenceDialog({
   open,
   onOpenChange,
   onSaved,
+  suggestedWeeklyTargetMin,
 }: FocusPreferenceDialogProps) {
   const { preferences, refreshPreferences, playTestAlarm, isPipSupported } = useFocusTimer();
 
@@ -45,6 +47,8 @@ export function FocusPreferenceDialog({
   const [longBreakInterval, setLongBreakInterval] = React.useState<number>(4);
   const [weeklyTargetMin, setWeeklyTargetMin] = React.useState<number>(600);
   const [minActiveDayMin, setMinActiveDayMin] = React.useState<number>(25);
+  const [activeDaysTarget, setActiveDaysTarget] = React.useState<number>(5);
+  const [showTargetRemaining, setShowTargetRemaining] = React.useState<boolean>(true);
   const [aiConsent, setAiConsent] = React.useState<boolean>(false);
   const [floatMode, setFloatMode] = React.useState<FloatMode>(FloatMode.IN_APP);
   const [alertIntensity, setAlertIntensity] = React.useState<AlertIntensity>(AlertIntensity.NORMAL);
@@ -61,6 +65,8 @@ export function FocusPreferenceDialog({
       setLongBreakInterval(preferences.longBreakInterval);
       setWeeklyTargetMin(preferences.weeklyTargetMin);
       setMinActiveDayMin(preferences.minActiveDayMin);
+      setActiveDaysTarget(preferences.activeDaysTarget ?? 5);
+      setShowTargetRemaining(preferences.showTargetRemaining ?? true);
       setAiConsent(preferences.aiConsent);
       setFloatMode(preferences.floatMode || FloatMode.IN_APP);
       setAlertIntensity(preferences.alertIntensity || AlertIntensity.NORMAL);
@@ -85,6 +91,8 @@ export function FocusPreferenceDialog({
         longBreakInterval,
         weeklyTargetMin,
         minActiveDayMin,
+        activeDaysTarget,
+        showTargetRemaining,
         aiConsent,
         floatMode,
         alertIntensity,
@@ -324,30 +332,84 @@ export function FocusPreferenceDialog({
             </div>
           </div>
 
-          {/* Target Mingguan & Ambang Hari Aktif */}
-          <div className="grid grid-cols-2 gap-3 p-3 bg-muted/40 rounded-xl border">
-            <div className="space-y-1">
-              <Label htmlFor="pref-weekly" className="text-[11px] font-medium text-muted-foreground">
-                Target Mingguan (Menit)
-              </Label>
-              <Input
-                id="pref-weekly"
-                type="number"
-                min={30}
-                max={10080}
-                step={30}
-                value={weeklyTargetMin}
-                onChange={(e) => setWeeklyTargetMin(parseInt(e.target.value, 10) || 600)}
-                className="h-8 text-xs font-mono"
-              />
-              <span className="text-[10px] text-muted-foreground">
-                {Math.floor(weeklyTargetMin / 60)} jam {weeklyTargetMin % 60}m / minggu
-              </span>
+          {/* Target Mingguan, Ambang Hari Aktif, & Saran Target */}
+          <div className="space-y-3 p-3 bg-muted/40 rounded-xl border">
+            <span className="font-semibold text-xs text-foreground block">
+              Target Belajar Personal
+            </span>
+
+            {/* Saran Target Mingguan Berdasarkan Median Riwayat (>= 3 minggu) */}
+            {suggestedWeeklyTargetMin !== null &&
+              suggestedWeeklyTargetMin !== undefined &&
+              suggestedWeeklyTargetMin > 0 && (
+                <div className="p-2.5 rounded-lg border border-primary/25 bg-primary/5 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-[11px] text-foreground flex items-center gap-1.5">
+                      <Sparkles className="h-3.5 w-3.5 text-primary" />
+                      Saran Target Mingguan (Dari Data Belajarmu)
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setWeeklyTargetMin(suggestedWeeklyTargetMin)}
+                      className="h-6 px-2 text-[10px] font-medium gap-1 cursor-pointer"
+                    >
+                      Gunakan Saran
+                    </Button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">
+                    Berdasarkan median fokus mingguanmu selama minimal 3 minggu terakhir:{" "}
+                    <strong className="text-foreground">
+                      {Math.floor(suggestedWeeklyTargetMin / 60)} jam {suggestedWeeklyTargetMin % 60}m
+                    </strong>{" "}
+                    ({suggestedWeeklyTargetMin} menit/minggu). Ini hanya saran dan tidak mengubah apa pun secara otomatis.
+                  </p>
+                </div>
+              )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="pref-weekly" className="text-[11px] font-medium text-muted-foreground">
+                  Target Mingguan (Menit)
+                </Label>
+                <Input
+                  id="pref-weekly"
+                  type="number"
+                  min={30}
+                  max={10080}
+                  step={30}
+                  value={weeklyTargetMin}
+                  onChange={(e) => setWeeklyTargetMin(parseInt(e.target.value, 10) || 600)}
+                  className="h-8 text-xs font-mono"
+                />
+                <span className="text-[10px] text-muted-foreground">
+                  {Math.floor(weeklyTargetMin / 60)} jam {weeklyTargetMin % 60}m / minggu
+                </span>
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="pref-active-days-target" className="text-[11px] font-medium text-muted-foreground">
+                  Target Hari Aktif / Minggu
+                </Label>
+                <Input
+                  id="pref-active-days-target"
+                  type="number"
+                  min={1}
+                  max={7}
+                  value={activeDaysTarget}
+                  onChange={(e) => setActiveDaysTarget(Math.max(1, Math.min(7, parseInt(e.target.value, 10) || 5)))}
+                  className="h-8 text-xs font-mono"
+                />
+                <span className="text-[10px] text-muted-foreground">
+                  Default 5 hari (1 - 7 hari)
+                </span>
+              </div>
             </div>
 
-            <div className="space-y-1">
+            <div className="space-y-1 pt-1">
               <Label htmlFor="pref-min-active" className="text-[11px] font-medium text-muted-foreground">
-                Ambang Hari Aktif (Menit)
+                Ambang Minimal Hari Aktif (Menit)
               </Label>
               <Input
                 id="pref-min-active"
@@ -359,8 +421,26 @@ export function FocusPreferenceDialog({
                 className="h-8 text-xs font-mono"
               />
               <span className="text-[10px] text-muted-foreground">
-                Minimal durasi untuk streak
+                Minimal durasi fokus per hari untuk dihitung sebagai hari aktif & streak (standar: 25 menit)
               </span>
+            </div>
+
+            <div className="flex items-start gap-2.5 pt-2 border-t">
+              <input
+                id="pref-show-target-remaining"
+                type="checkbox"
+                checked={showTargetRemaining}
+                onChange={(e) => setShowTargetRemaining(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+              />
+              <div className="space-y-0.5">
+                <Label htmlFor="pref-show-target-remaining" className="text-xs font-medium cursor-pointer">
+                  Tampilkan sisa target mingguan di kartu ringkasan
+                </Label>
+                <p className="text-[10px] text-muted-foreground">
+                  Menampilkan teks &quot;sisa Z&quot; pada baris sekunder kartu Total Waktu Fokus.
+                </p>
+              </div>
             </div>
           </div>
 

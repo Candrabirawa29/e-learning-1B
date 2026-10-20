@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/session";
+import { visibleCoursesWhere } from "@/lib/courses/course-filter";
 import { MaterialList } from "@/components/materials/MaterialList";
 import { UploadMaterialDialog } from "@/components/materials/UploadMaterialDialog";
 import { getStorageFileUrl } from "@/lib/supabase/storage";
@@ -15,7 +16,12 @@ export default async function ManageMaterialsPage() {
 
   const [rawMaterials, courses] = await Promise.all([
     prisma.material.findMany({
-      where: { course: { classId: class1B.id } },
+      where: {
+        course: {
+          classId: class1B.id,
+          ...visibleCoursesWhere(session),
+        },
+      },
       include: {
         course: true,
         topic: true,
@@ -24,7 +30,10 @@ export default async function ManageMaterialsPage() {
       orderBy: { createdAt: "desc" },
     }),
     prisma.course.findMany({
-      where: { classId: class1B.id },
+      where: {
+        classId: class1B.id,
+        ...visibleCoursesWhere(session),
+      },
       include: {
         topics: { orderBy: { order: "asc" } },
       },

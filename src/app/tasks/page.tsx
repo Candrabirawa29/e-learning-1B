@@ -17,7 +17,10 @@ export default async function PublicTasksPage() {
     if (class1B) {
       [tasks, courses] = await Promise.all([
         prisma.task.findMany({
-          where: { classId: class1B.id },
+          where: {
+            classId: class1B.id,
+            OR: [{ courseId: null }, { course: { kind: "REGULAR", archivedAt: null } }],
+          },
           include: {
             course: true,
             createdBy: true,
@@ -27,7 +30,7 @@ export default async function PublicTasksPage() {
           orderBy: [{ deadline: "asc" }, { createdAt: "desc" }],
         }),
         prisma.course.findMany({
-          where: { classId: class1B.id },
+          where: { classId: class1B.id, kind: "REGULAR", archivedAt: null },
           orderBy: { name: "asc" },
         }),
       ]);

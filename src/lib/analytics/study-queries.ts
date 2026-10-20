@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
+import { visibleCoursesSql } from "@/lib/courses/course-filter";
 
 /**
  * Fragmen SQL untuk mengonversi kolom timestamp Prisma (tanpa zona waktu, menyimpan UTC)
@@ -30,6 +31,7 @@ export interface CourseBreakdownRow {
   course_id: string | null;
   course_name: string;
   course_code: string | null;
+  kind?: string | null;
   total_minutes: number;
   session_count: number;
 }
@@ -143,6 +145,7 @@ export async function getCourseBreakdown(
       fs."courseId" AS course_id,
       COALESCE(c."name", 'Umum / Mandiri') AS course_name,
       c."code" AS course_code,
+      c."kind"::text AS kind,
       ROUND(COALESCE(SUM(fs."accumulatedSec"), 0) / 60.0)::integer AS total_minutes,
       COUNT(fs.id)::integer AS session_count
     FROM "focus_sessions" fs
@@ -151,7 +154,8 @@ export async function getCourseBreakdown(
       AND (fs."status" = 'COMPLETED' OR (fs."status" = 'STOPPED_EARLY' AND fs."accumulatedSec" > 0))
       AND ${wibLocal('fs."startedAt"')} >= (${startDateKey} || ' 00:00:00')::timestamp
       AND ${wibLocal('fs."startedAt"')} <= (${endDateKey} || ' 23:59:59.999')::timestamp
-    GROUP BY fs."courseId", c."name", c."code"
+      ${visibleCoursesSql(userId, { courseAlias: "c" })}
+    GROUP BY fs."courseId", c."name", c."code", c."kind"
     ORDER BY total_minutes DESC;
   `);
 
@@ -246,13 +250,33 @@ export async function getSessionCompletionRatio(
 }
 
 /**
- * Mengambil total menit per minggu (Senin - Minggu) untuk 5 minggu terakhir
+ * Mengambil tanggal sesi pertama user untuk mengetahui hari ke berapa sejak mulai belajar.
+ */
+export async function getFirstSessionDate(userId: string): Promise<Date | null> {
+  const row = await prisma.focusSession.findFirst({
+    where: {
+      userId,
+      status: { not: "CANCELLED" },
+    },
+    orderBy: { startedAt: "asc" },
+    select: { startedAt: true },
+  });
+  return row ? row.startedAt : null;
+}
+
+/**
+ * Mengambil total menit per minggu (Senin - Minggu) untuk minggu-minggu terakhir
  * untuk menghitung tren dan rata-rata 4 minggu sebelumnya.
  * Batas minggu dimulai hari Senin (date_trunc week).
  */
 export async function getWeeklyTrendRecords(
   userId: string
-): Promise<{ thisWeekMinutes: number; pastWeeksMinutes: number[]; availableWeeksCount: number }> {
+): Promise<{
+  thisWeekMinutes: number;
+  pastWeeksMinutes: number[];
+  availableWeeksCount: number;
+  weeklyRows: { weekStart: string; totalMinutes: number }[];
+}> {
   // Query 8 minggu terakhir dari trunc week berdasarkan nilai lokal WIB
   const rows = await prisma.$queryRaw<{ week_start: string; total_minutes: number }[]>(Prisma.sql`
     SELECT
@@ -268,8 +292,18 @@ export async function getWeeklyTrendRecords(
   `);
 
   if (rows.length === 0) {
-    return { thisWeekMinutes: 0, pastWeeksMinutes: [], availableWeeksCount: 0 };
+    return {
+      thisWeekMinutes: 0,
+      pastWeeksMinutes: [],
+      availableWeeksCount: 0,
+      weeklyRows: [],
+    };
   }
+
+  const weeklyRows = rows.map((r) => ({
+    weekStart: r.week_start,
+    totalMinutes: Number(r.total_minutes) || 0,
+  }));
 
   const thisWeekMinutes = Number(rows[0].total_minutes) || 0;
   const pastWeeks = rows.slice(1, 5).map((r) => Number(r.total_minutes) || 0);
@@ -278,5 +312,6 @@ export async function getWeeklyTrendRecords(
     thisWeekMinutes,
     pastWeeksMinutes: pastWeeks,
     availableWeeksCount: rows.length,
+    weeklyRows,
   };
 }

@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { MaterialType, MaterialVisibility } from "@prisma/client";
-import { Upload, Loader2, FileUp, Link2, AlertCircle } from "lucide-react";
+import { Upload, Loader2, FileUp, Link2, AlertCircle, FileText } from "lucide-react";
 import { toast } from "sonner";
 
 interface CourseTopic {
@@ -37,6 +37,7 @@ interface UploadMaterialDialogProps {
   defaultCourseId?: string;
   defaultTopicId?: string;
   triggerButton?: React.ReactNode;
+  allowFileUpload?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   onSuccess?: () => void;
@@ -47,6 +48,7 @@ export function UploadMaterialDialog({
   defaultCourseId,
   defaultTopicId,
   triggerButton,
+  allowFileUpload = true,
   open: controlledOpen,
   onOpenChange: setControlledOpen,
   onSuccess,
@@ -63,11 +65,19 @@ export function UploadMaterialDialog({
   const [description, setDescription] = React.useState("");
   const [courseId, setCourseId] = React.useState<string>(defaultCourseId || courses[0]?.id || "");
   const [topicId, setTopicId] = React.useState<string>(defaultTopicId || "none");
-  const [uploadMode, setUploadMode] = React.useState<"file" | "link">("file");
+  const [uploadMode, setUploadMode] = React.useState<"file" | "link" | "notes">(
+    allowFileUpload ? "file" : "link"
+  );
   const [materialType, setMaterialType] = React.useState<MaterialType>(MaterialType.PDF);
   const [externalUrl, setExternalUrl] = React.useState("");
   const visibility = MaterialVisibility.PUBLIC;
   const [file, setFile] = React.useState<File | null>(null);
+
+  React.useEffect(() => {
+    if (!allowFileUpload && uploadMode === "file") {
+      setUploadMode("link");
+    }
+  }, [allowFileUpload, uploadMode]);
 
   React.useEffect(() => {
     if (defaultCourseId) {
@@ -125,6 +135,11 @@ export function UploadMaterialDialog({
       return;
     }
 
+    if (uploadMode === "notes" && !description.trim()) {
+      toast.error("Masukkan isi catatan materi.");
+      return;
+    }
+
     if (uploadMode === "file" && !file) {
       toast.error("Harap pilih file yang akan diunggah.");
       return;
@@ -171,6 +186,17 @@ export function UploadMaterialDialog({
           publicId: cldJson.public_id,
           fileName: file.name,
           fileSize: file.size,
+          visibility,
+        });
+      } else if (uploadMode === "notes") {
+        setUploadProgress("Menyimpan catatan materi...");
+        await createMaterialAction({
+          title: title.trim(),
+          description: description.trim() || undefined,
+          courseId,
+          topicId: topicId === "none" ? null : topicId,
+          materialType: MaterialType.NOTES,
+          provider: "EXTERNAL",
           visibility,
         });
       } else {
@@ -220,32 +246,61 @@ export function UploadMaterialDialog({
           </DialogHeader>
 
           <div className="space-y-3.5 text-xs py-1">
-            {/* Pilihan Metode: File Upload vs Link */}
+            {/* Pilihan Metode: File Upload vs Link vs Catatan */}
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">Metode Materi</Label>
               <div className="grid grid-cols-2 gap-3">
-                <div
-                  onClick={() => setUploadMode("file")}
-                  className={`flex items-center gap-2 p-2.5 border rounded-md cursor-pointer transition-all ${
-                    uploadMode === "file"
-                      ? "border-primary bg-primary/5 text-foreground font-medium"
-                      : "text-muted-foreground hover:bg-muted/40"
-                  }`}
-                >
-                  <FileUp className="h-4 w-4 text-primary" />
-                  <span>File Langsung (Maks 10MB)</span>
-                </div>
-                <div
-                  onClick={() => setUploadMode("link")}
-                  className={`flex items-center gap-2 p-2.5 border rounded-md cursor-pointer transition-all ${
-                    uploadMode === "link"
-                      ? "border-primary bg-primary/5 text-foreground font-medium"
-                      : "text-muted-foreground hover:bg-muted/40"
-                  }`}
-                >
-                  <Link2 className="h-4 w-4 text-primary" />
-                  <span>Tautan Eksternal</span>
-                </div>
+                {allowFileUpload ? (
+                  <>
+                    <div
+                      onClick={() => setUploadMode("file")}
+                      className={`flex items-center gap-2 p-2.5 border rounded-md cursor-pointer transition-all ${
+                        uploadMode === "file"
+                          ? "border-primary bg-primary/5 text-foreground font-medium"
+                          : "text-muted-foreground hover:bg-muted/40"
+                      }`}
+                    >
+                      <FileUp className="h-4 w-4 text-primary" />
+                      <span>File Langsung (Maks 10MB)</span>
+                    </div>
+                    <div
+                      onClick={() => setUploadMode("link")}
+                      className={`flex items-center gap-2 p-2.5 border rounded-md cursor-pointer transition-all ${
+                        uploadMode === "link"
+                          ? "border-primary bg-primary/5 text-foreground font-medium"
+                          : "text-muted-foreground hover:bg-muted/40"
+                      }`}
+                    >
+                      <Link2 className="h-4 w-4 text-primary" />
+                      <span>Tautan Eksternal</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div
+                      onClick={() => setUploadMode("link")}
+                      className={`flex items-center gap-2 p-2.5 border rounded-md cursor-pointer transition-all ${
+                        uploadMode === "link"
+                          ? "border-primary bg-primary/5 text-foreground font-medium"
+                          : "text-muted-foreground hover:bg-muted/40"
+                      }`}
+                    >
+                      <Link2 className="h-4 w-4 text-primary" />
+                      <span>Tautan Eksternal</span>
+                    </div>
+                    <div
+                      onClick={() => setUploadMode("notes")}
+                      className={`flex items-center gap-2 p-2.5 border rounded-md cursor-pointer transition-all ${
+                        uploadMode === "notes"
+                          ? "border-primary bg-primary/5 text-foreground font-medium"
+                          : "text-muted-foreground hover:bg-muted/40"
+                      }`}
+                    >
+                      <FileText className="h-4 w-4 text-primary" />
+                      <span>Catatan / Rangkuman</span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -307,7 +362,7 @@ export function UploadMaterialDialog({
               />
             </div>
 
-            {/* Upload File atau Input Link */}
+            {/* Upload File atau Input Link atau Catatan */}
             {uploadMode === "file" ? (
               <div className="space-y-2">
                 <div className="space-y-1">
@@ -329,7 +384,7 @@ export function UploadMaterialDialog({
                   </div>
                 )}
               </div>
-            ) : (
+            ) : uploadMode === "link" ? (
               <div className="space-y-1">
                 <Label className="text-xs font-medium">
                   URL Tautan Eksternal <span className="text-red-500">*</span>
@@ -343,17 +398,29 @@ export function UploadMaterialDialog({
                   required={uploadMode === "link"}
                 />
               </div>
-            )}
+            ) : null}
 
-            {/* Deskripsi */}
+            {/* Deskripsi / Isi Catatan */}
             <div className="space-y-1">
-              <Label className="text-xs font-medium">Deskripsi / Catatan Tambahan (Opsional)</Label>
+              <Label className="text-xs font-medium">
+                {uploadMode === "notes" ? (
+                  <>
+                    Isi Catatan / Materi <span className="text-red-500">*</span>
+                  </>
+                ) : (
+                  "Deskripsi / Catatan Tambahan (Opsional)"
+                )}
+              </Label>
               <Textarea
-                placeholder="Tuliskan catatan penting mengenai materi ini..."
+                placeholder={
+                  uploadMode === "notes"
+                    ? "Tuliskan rangkuman, rumus, atau catatan belajar mandiri di sini..."
+                    : "Tuliskan catatan penting mengenai materi ini..."
+                }
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                rows={2}
-                className="text-xs resize-none"
+                rows={uploadMode === "notes" ? 5 : 2}
+                required={uploadMode === "notes"}
               />
             </div>
 

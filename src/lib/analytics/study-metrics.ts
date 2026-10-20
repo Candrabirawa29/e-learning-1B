@@ -174,11 +174,15 @@ export interface ConsistencyScoreInput {
   activeDaysInWeek: number; // 0 to 7
   startedSessionsCount: number;
   completedSessionsCount: number;
-  hasFullWeekData: boolean;
+  hasFullWeekData?: boolean;
+  daysSinceFirstSession?: number; // Hari kalender sejak sesi pertama
+  daysElapsedInWeek?: number; // 1 (Senin) s/d 7 (Minggu)
+  activeDaysTarget?: number; // default 5
+  lastWeekScore?: number | null; // Skor minggu lalu bila ada
 }
 
 export interface ConsistencyScoreResult {
-  score: number | null; // null if insufficient data (< 1 full week)
+  score: number | null; // null if insufficient data (< 7 hari sejak sesi pertama)
   targetComponent: number; // 0 - 50
   activeDaysComponent: number; // 0 - 30
   completionRateComponent: number; // 0 - 20
@@ -186,10 +190,32 @@ export interface ConsistencyScoreResult {
   activeDaysRatio: number; // 0 - 1
   completionRatio: number; // 0 - 1
   explanation: string;
+  isCollectingData: boolean;
+  collectingDayNumber: number; // 1 - 7
+  targetPercent: number; // e.g. 9
+  expectedTargetMinutes: number;
+  expectedActiveDays: number;
+  activeDaysInWeek: number;
+  startedSessionsCount: number;
+  completedSessionsCount: number;
+  lastWeekScore: number | null;
 }
 
 export function calculateWeeklyConsistencyScore(input: ConsistencyScoreInput): ConsistencyScoreResult {
-  if (!input.hasFullWeekData || input.weeklyTargetMinutes <= 0) {
+  const activeDaysTarget = input.activeDaysTarget ?? 5;
+  const isFullWeek = input.daysSinceFirstSession !== undefined
+    ? input.daysSinceFirstSession >= 7
+    : (input.hasFullWeekData ?? true);
+
+  const collectingDay = input.daysSinceFirstSession !== undefined
+    ? Math.max(1, Math.min(7, input.daysSinceFirstSession))
+    : 1;
+
+  if (!isFullWeek || input.weeklyTargetMinutes <= 0) {
+    const explanation = input.daysSinceFirstSession !== undefined
+      ? `Mengumpulkan data (hari ke-${collectingDay} dari 7)`
+      : "Data belajar Anda kurang dari 1 minggu penuh. Indeks konsistensi akan dihitung setelah 7 hari aktif.";
+
     return {
       score: null,
       targetComponent: 0,
@@ -198,19 +224,36 @@ export function calculateWeeklyConsistencyScore(input: ConsistencyScoreInput): C
       targetRatio: 0,
       activeDaysRatio: 0,
       completionRatio: 0,
-      explanation: "Data belajar Anda kurang dari 1 minggu penuh. Indeks konsistensi akan dihitung setelah 7 hari aktif.",
+      explanation,
+      isCollectingData: true,
+      collectingDayNumber: collectingDay,
+      targetPercent: 0,
+      expectedTargetMinutes: 0,
+      expectedActiveDays: 0,
+      activeDaysInWeek: input.activeDaysInWeek,
+      startedSessionsCount: input.startedSessionsCount,
+      completedSessionsCount: input.completedSessionsCount,
+      lastWeekScore: input.lastWeekScore ?? null,
     };
   }
 
-  // 1. Target achievement: max 1.0 (no overtime bonus) -> weight 50
-  const targetRatio = Math.min(1.0, Math.max(0, input.weeklyActualMinutes / input.weeklyTargetMinutes));
-  const targetComponent = Math.round(targetRatio * 50);
+  // Prorata minggu berjalan: disesuaikan dengan hari yang sudah berlalu sejak Senin (1..7)
+  const daysElapsed = Math.max(1, Math.min(7, input.daysElapsedInWeek ?? 7));
+  const expectedTargetMinutes = Math.max(1, Math.round(input.weeklyTargetMinutes * (daysElapsed / 7)));
+  const expectedActiveDays = Math.max(1, Math.min(daysElapsed, Math.round(activeDaysTarget * (daysElapsed / 7))));
 
-  // 2. Active days: out of 5 work/study days -> max 1.0 -> weight 30
-  const activeDaysRatio = Math.min(1.0, Math.max(0, input.activeDaysInWeek / 5));
+  // 1. Target achievement: max 1.0 (no overtime bonus) -> weight 50 poin
+  const rawTargetRatio = expectedTargetMinutes > 0 ? (input.weeklyActualMinutes / expectedTargetMinutes) : 0;
+  const targetRatio = Math.min(1.0, Math.max(0, rawTargetRatio));
+  const targetComponent = Math.round(targetRatio * 50);
+  const targetPercent = Math.round(rawTargetRatio * 100);
+
+  // 2. Active days: out of expectedActiveDays -> max 1.0 -> weight 30 poin
+  const rawActiveDaysRatio = expectedActiveDays > 0 ? (input.activeDaysInWeek / expectedActiveDays) : 0;
+  const activeDaysRatio = Math.min(1.0, Math.max(0, rawActiveDaysRatio));
   const activeDaysComponent = Math.round(activeDaysRatio * 30);
 
-  // 3. Completion rate: completed / started -> weight 20
+  // 3. Completion rate: completed / started -> weight 20 poin
   const completionRatio = input.startedSessionsCount > 0
     ? Math.min(1.0, Math.max(0, input.completedSessionsCount / input.startedSessionsCount))
     : 1.0;
@@ -238,13 +281,22 @@ export function calculateWeeklyConsistencyScore(input: ConsistencyScoreInput): C
     activeDaysRatio,
     completionRatio,
     explanation,
+    isCollectingData: false,
+    collectingDayNumber: collectingDay,
+    targetPercent,
+    expectedTargetMinutes,
+    expectedActiveDays,
+    activeDaysInWeek: input.activeDaysInWeek,
+    startedSessionsCount: input.startedSessionsCount,
+    completedSessionsCount: input.completedSessionsCount,
+    lastWeekScore: input.lastWeekScore ?? null,
   };
 }
 
 /**
  * Trend Analysis:
  * Compares this week against average of past 4 weeks with +-15% neutral band.
- * If data < 3 weeks: returns "INSUFFICIENT_DATA".
+ * If data < 3 weeks: returns "INSUFFICIENT_DATA" with "baru N dari 3 minggu".
  */
 export type TrendDirection = "UP" | "STABLE" | "DOWN" | "INSUFFICIENT_DATA";
 
@@ -254,12 +306,15 @@ export interface TrendAnalysisResult {
   thisWeekMinutes: number;
   pastAverageMinutes: number;
   label: string;
+  availableWeeksCount: number;
+  weeklyBars?: { weekLabel: string; minutes: number }[];
 }
 
 export function calculateStudyTrend(
   thisWeekMinutes: number,
   pastWeeksMinutes: number[],
-  availableWeeksCount: number
+  availableWeeksCount: number,
+  weeklyBars?: { weekLabel: string; minutes: number }[]
 ): TrendAnalysisResult {
   if (availableWeeksCount < 3 || pastWeeksMinutes.length === 0) {
     return {
@@ -267,7 +322,9 @@ export function calculateStudyTrend(
       percentChange: 0,
       thisWeekMinutes,
       pastAverageMinutes: 0,
-      label: "Belum cukup data (membutuhkan minimal 3 minggu)",
+      label: `baru ${availableWeeksCount} dari 3 minggu`,
+      availableWeeksCount,
+      weeklyBars,
     };
   }
 
@@ -281,6 +338,8 @@ export function calculateStudyTrend(
       thisWeekMinutes,
       pastAverageMinutes: 0,
       label: thisWeekMinutes > 0 ? "Meningkat dibanding rata-rata sebelumnya" : "Stabil",
+      availableWeeksCount,
+      weeklyBars,
     };
   }
 
@@ -304,5 +363,23 @@ export function calculateStudyTrend(
     thisWeekMinutes,
     pastAverageMinutes: pastAverage,
     label,
+    availableWeeksCount,
+    weeklyBars,
   };
+}
+
+/**
+ * Menghitung median menit belajar mingguan dari riwayat user sendiri (minimal 3 minggu).
+ * Mengembalikan null jika data kurang dari 3 minggu.
+ */
+export function calculateMedianWeeklyMinutes(weeklyMinutes: number[]): number | null {
+  if (!weeklyMinutes || weeklyMinutes.length < 3) return null;
+  const sorted = [...weeklyMinutes].filter((m) => typeof m === "number" && !isNaN(m)).sort((a, b) => a - b);
+  if (sorted.length < 3) return null;
+
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) {
+    return sorted[mid];
+  }
+  return Math.round((sorted[mid - 1] + sorted[mid]) / 2);
 }

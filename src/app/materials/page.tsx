@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentSession } from "@/lib/auth/session";
+import { visibleCoursesWhere } from "@/lib/courses/course-filter";
 import { Navbar } from "@/components/layout/Navbar";
 import { MaterialList, MaterialItem } from "@/components/materials/MaterialList";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +18,10 @@ export default async function PublicMaterialsPage() {
       [materials, courses] = await Promise.all([
         prisma.material.findMany({
           where: {
-            course: { classId: class1B.id },
+            course: {
+              classId: class1B.id,
+              ...visibleCoursesWhere(session),
+            },
             visibility: "PUBLIC",
           },
           include: {
@@ -28,7 +32,10 @@ export default async function PublicMaterialsPage() {
           orderBy: { createdAt: "desc" },
         }),
         prisma.course.findMany({
-          where: { classId: class1B.id },
+          where: {
+            classId: class1B.id,
+            ...visibleCoursesWhere(session),
+          },
           orderBy: { name: "asc" },
         }),
       ]);

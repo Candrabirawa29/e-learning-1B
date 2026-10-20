@@ -315,6 +315,10 @@ export async function executeGetUpcomingTasks(
     where: {
       status: { not: "DONE" },
       deadline: { gte: now },
+      OR: [
+        { courseId: null },
+        { course: { kind: "REGULAR", archivedAt: null } },
+      ],
     },
     orderBy: { deadline: "asc" },
     take: args.limit,

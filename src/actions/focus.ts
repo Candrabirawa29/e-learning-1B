@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireUser, assertCanMutate } from "@/lib/auth/session";
-import { FocusMode, FocusSessionStatus, Prisma } from "@prisma/client";
+import { FocusMode, FocusSessionStatus, Prisma, StudyPreference } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
@@ -833,28 +833,63 @@ export async function deleteFocusSessionAction(sessionId: string) {
  * Helper untuk mengambil preferensi belajar atau inisialisasi default jika belum ada.
  */
 export async function getOrCreateStudyPreference(userId: string): Promise<StudyPreferenceDto> {
-  let pref = await prisma.studyPreference.findUnique({
-    where: { userId },
-  });
+  let pref: (StudyPreference & { showTargetRemaining?: boolean; activeDaysTarget?: number }) | null = null;
+  try {
+    pref = await prisma.studyPreference.findUnique({
+      where: { userId },
+    });
+  } catch (err: unknown) {
+    const errorObj = err as { code?: string; message?: string };
+    if (errorObj?.code === "P2021" || errorObj?.code === "P2022" || errorObj?.message?.includes("column")) {
+      // Kolom baru belum di-migrate di database, fallback query raw
+      const rows = await prisma.$queryRaw<StudyPreference[]>`SELECT * FROM "study_preferences" WHERE "userId" = ${userId} LIMIT 1`;
+      pref = rows[0] || null;
+    } else {
+      throw err;
+    }
+  }
 
   if (!pref) {
-    pref = await prisma.studyPreference.create({
-      data: {
-        userId,
-        focusDuration: 1500,
-        shortBreakDuration: 300,
-        longBreakDuration: 900,
-        longBreakInterval: 4,
-        weeklyTargetMin: 600,
-        minActiveDayMin: 25,
-        aiConsent: false,
-        floatMode: FloatMode.IN_APP,
-        alertIntensity: AlertIntensity.NORMAL,
-        soundVolume: 80,
-        autoStartBreak: true,
-        autoStartNextFocus: false,
-      },
-    });
+    try {
+      pref = await prisma.studyPreference.create({
+        data: {
+          userId,
+          focusDuration: 1500,
+          shortBreakDuration: 300,
+          longBreakDuration: 900,
+          longBreakInterval: 4,
+          weeklyTargetMin: 600,
+          minActiveDayMin: 25,
+          showTargetRemaining: true,
+          activeDaysTarget: 5,
+          aiConsent: false,
+          floatMode: FloatMode.IN_APP,
+          alertIntensity: AlertIntensity.NORMAL,
+          soundVolume: 80,
+          autoStartBreak: true,
+          autoStartNextFocus: false,
+        },
+      });
+    } catch {
+      // Fallback create jika kolom baru belum ada
+      pref = await prisma.studyPreference.create({
+        data: {
+          userId,
+          focusDuration: 1500,
+          shortBreakDuration: 300,
+          longBreakDuration: 900,
+          longBreakInterval: 4,
+          weeklyTargetMin: 600,
+          minActiveDayMin: 25,
+          aiConsent: false,
+          floatMode: FloatMode.IN_APP,
+          alertIntensity: AlertIntensity.NORMAL,
+          soundVolume: 80,
+          autoStartBreak: true,
+          autoStartNextFocus: false,
+        } as unknown as Prisma.StudyPreferenceCreateInput,
+      });
+    }
   }
 
   return {
@@ -866,6 +901,8 @@ export async function getOrCreateStudyPreference(userId: string): Promise<StudyP
     longBreakInterval: pref.longBreakInterval,
     weeklyTargetMin: pref.weeklyTargetMin,
     minActiveDayMin: pref.minActiveDayMin,
+    showTargetRemaining: pref.showTargetRemaining ?? true,
+    activeDaysTarget: pref.activeDaysTarget ?? 5,
     aiConsent: pref.aiConsent,
     floatMode: pref.floatMode || FloatMode.IN_APP,
     alertIntensity: pref.alertIntensity || AlertIntensity.NORMAL,
@@ -894,6 +931,8 @@ const UpdatePreferenceSchema = z.object({
   longBreakInterval: z.number().int().min(1).max(12).optional(),
   weeklyTargetMin: z.number().int().min(30).max(10080).optional(),
   minActiveDayMin: z.number().int().min(5).max(480).optional(),
+  showTargetRemaining: z.boolean().optional(),
+  activeDaysTarget: z.number().int().min(1).max(7).optional(),
   aiConsent: z.boolean().optional(),
   floatMode: z.nativeEnum(FloatMode).optional(),
   alertIntensity: z.nativeEnum(AlertIntensity).optional(),
@@ -915,28 +954,68 @@ export async function updateStudyPreferencesAction(rawInput: z.infer<typeof Upda
 
   const data = UpdatePreferenceSchema.parse(rawInput);
 
-  const updated = await prisma.studyPreference.upsert({
-    where: { userId },
-    create: {
-      userId,
-      focusDuration: data.focusDuration ?? 1500,
-      shortBreakDuration: data.shortBreakDuration ?? 300,
-      longBreakDuration: data.longBreakDuration ?? 900,
-      longBreakInterval: data.longBreakInterval ?? 4,
-      weeklyTargetMin: data.weeklyTargetMin ?? 600,
-      minActiveDayMin: data.minActiveDayMin ?? 25,
-      aiConsent: data.aiConsent ?? false,
-      floatMode: data.floatMode ?? FloatMode.IN_APP,
-      alertIntensity: data.alertIntensity ?? AlertIntensity.NORMAL,
-      soundVolume: data.soundVolume ?? 80,
-      lastCourseId: data.lastCourseId ?? null,
-      lastTaskId: data.lastTaskId ?? null,
-      lastMode: data.lastMode ?? null,
-      autoStartBreak: data.autoStartBreak ?? true,
-      autoStartNextFocus: data.autoStartNextFocus ?? false,
-    },
-    update: data,
-  });
+  let updated: (StudyPreference & { showTargetRemaining?: boolean; activeDaysTarget?: number });
+  try {
+    updated = await prisma.studyPreference.upsert({
+      where: { userId },
+      create: {
+        userId,
+        focusDuration: data.focusDuration ?? 1500,
+        shortBreakDuration: data.shortBreakDuration ?? 300,
+        longBreakDuration: data.longBreakDuration ?? 900,
+        longBreakInterval: data.longBreakInterval ?? 4,
+        weeklyTargetMin: data.weeklyTargetMin ?? 600,
+        minActiveDayMin: data.minActiveDayMin ?? 25,
+        showTargetRemaining: data.showTargetRemaining ?? true,
+        activeDaysTarget: data.activeDaysTarget ?? 5,
+        aiConsent: data.aiConsent ?? false,
+        floatMode: data.floatMode ?? FloatMode.IN_APP,
+        alertIntensity: data.alertIntensity ?? AlertIntensity.NORMAL,
+        soundVolume: data.soundVolume ?? 80,
+        lastCourseId: data.lastCourseId ?? null,
+        lastTaskId: data.lastTaskId ?? null,
+        lastMode: data.lastMode ?? null,
+        autoStartBreak: data.autoStartBreak ?? true,
+        autoStartNextFocus: data.autoStartNextFocus ?? false,
+      },
+      update: data,
+    });
+  } catch (err: unknown) {
+    const errorObj = err as { code?: string; message?: string };
+    if (errorObj?.code === "P2021" || errorObj?.code === "P2022" || errorObj?.message?.includes("column")) {
+      // Fallback update tanpa kolom yang belum dimigrate
+      const fallbackData = { ...data };
+      delete fallbackData.showTargetRemaining;
+      delete fallbackData.activeDaysTarget;
+
+      updated = await prisma.studyPreference.upsert({
+        where: { userId },
+        create: {
+          userId,
+          focusDuration: data.focusDuration ?? 1500,
+          shortBreakDuration: data.shortBreakDuration ?? 300,
+          longBreakDuration: data.longBreakDuration ?? 900,
+          longBreakInterval: data.longBreakInterval ?? 4,
+          weeklyTargetMin: data.weeklyTargetMin ?? 600,
+          minActiveDayMin: data.minActiveDayMin ?? 25,
+          aiConsent: data.aiConsent ?? false,
+          floatMode: data.floatMode ?? FloatMode.IN_APP,
+          alertIntensity: data.alertIntensity ?? AlertIntensity.NORMAL,
+          soundVolume: data.soundVolume ?? 80,
+          lastCourseId: data.lastCourseId ?? null,
+          lastTaskId: data.lastTaskId ?? null,
+          lastMode: data.lastMode ?? null,
+          autoStartBreak: data.autoStartBreak ?? true,
+          autoStartNextFocus: data.autoStartNextFocus ?? false,
+        } as unknown as Prisma.StudyPreferenceCreateInput,
+        update: fallbackData as unknown as Prisma.StudyPreferenceUpdateInput,
+      });
+      updated.showTargetRemaining = data.showTargetRemaining ?? true;
+      updated.activeDaysTarget = data.activeDaysTarget ?? 5;
+    } else {
+      throw err;
+    }
+  }
 
   revalidatePath("/home/focus");
   revalidatePath("/home/study-analytics");
@@ -952,6 +1031,8 @@ export async function updateStudyPreferencesAction(rawInput: z.infer<typeof Upda
       longBreakInterval: updated.longBreakInterval,
       weeklyTargetMin: updated.weeklyTargetMin,
       minActiveDayMin: updated.minActiveDayMin,
+      showTargetRemaining: updated.showTargetRemaining ?? data.showTargetRemaining ?? true,
+      activeDaysTarget: updated.activeDaysTarget ?? data.activeDaysTarget ?? 5,
       aiConsent: updated.aiConsent,
       floatMode: updated.floatMode,
       alertIntensity: updated.alertIntensity,

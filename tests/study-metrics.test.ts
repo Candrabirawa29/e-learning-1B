@@ -4,6 +4,7 @@ import {
   calculateTolerantStreak,
   calculateWeeklyConsistencyScore,
   calculateStudyTrend,
+  calculateMedianWeeklyMinutes,
 } from "../src/lib/analytics/study-metrics";
 
 describe("Tolerant Streak Algorithm", () => {
@@ -110,6 +111,88 @@ describe("Weekly Consistency Score", () => {
     assert.match(res.explanation, /kurang dari 1 minggu penuh/);
   });
 
+  test("Poin 3: Gating 7 hari sejak sesi pertama menampilkan 'Mengumpulkan data (hari ke-N dari 7)'", () => {
+    // Sesi baru berjalan 3 hari sejak sesi pertama
+    const resDay3 = calculateWeeklyConsistencyScore({
+      weeklyActualMinutes: 150,
+      weeklyTargetMinutes: 600,
+      activeDaysInWeek: 2,
+      startedSessionsCount: 4,
+      completedSessionsCount: 4,
+      daysSinceFirstSession: 3,
+      daysElapsedInWeek: 3,
+      activeDaysTarget: 5,
+    });
+
+    assert.strictEqual(resDay3.score, null);
+    assert.strictEqual(resDay3.isCollectingData, true);
+    assert.strictEqual(resDay3.collectingDayNumber, 3);
+    assert.strictEqual(resDay3.explanation, "Mengumpulkan data (hari ke-3 dari 7)");
+
+    // Setelah 7 hari, skor konsistensi tampil
+    const resDay7 = calculateWeeklyConsistencyScore({
+      weeklyActualMinutes: 600,
+      weeklyTargetMinutes: 600,
+      activeDaysInWeek: 5,
+      startedSessionsCount: 8,
+      completedSessionsCount: 8,
+      daysSinceFirstSession: 7,
+      daysElapsedInWeek: 7,
+      activeDaysTarget: 5,
+    });
+
+    assert.strictEqual(resDay7.isCollectingData, false);
+    assert.strictEqual(resDay7.score, 100);
+  });
+
+  test("Poin 3: Prorata minggu berjalan disesuaikan dengan hari yang sudah berlalu (hari berlalu / 7)", () => {
+    // Hari Rabu (hari ke-3 sejak Senin)
+    // Target mingguan 700m -> Target prorata = 700 * (3/7) = 300m
+    // Target hari aktif 5 hari -> Target prorata = round(5 * (3/7)) = 2 hari
+    const res = calculateWeeklyConsistencyScore({
+      weeklyActualMinutes: 300, // Mencapai 100% dari target prorata 300m -> 50 poin
+      weeklyTargetMinutes: 700,
+      activeDaysInWeek: 2, // 2 dari 2 hari prorata -> 30 poin
+      startedSessionsCount: 4,
+      completedSessionsCount: 4, // 4 dari 4 -> 20 poin
+      daysSinceFirstSession: 14, // > 7 hari
+      daysElapsedInWeek: 3, // Rabu
+      activeDaysTarget: 5,
+    });
+
+    assert.strictEqual(res.expectedTargetMinutes, 300);
+    assert.strictEqual(res.expectedActiveDays, 2);
+    assert.strictEqual(res.targetPercent, 100);
+    assert.strictEqual(res.targetComponent, 50);
+    assert.strictEqual(res.activeDaysComponent, 30);
+    assert.strictEqual(res.completionRateComponent, 20);
+    assert.strictEqual(res.score, 100);
+  });
+
+  test("Poin 3: Breakdown komponen dan skor minggu lalu", () => {
+    // Target: 9% pencapaian -> 5/50 poin
+    // Hari aktif: 1 dari 5 -> 6/30 poin
+    // Sesi: 10 dari 16 -> 13/20 poin
+    const res = calculateWeeklyConsistencyScore({
+      weeklyActualMinutes: 90,
+      weeklyTargetMinutes: 1000,
+      activeDaysInWeek: 1,
+      startedSessionsCount: 16,
+      completedSessionsCount: 10,
+      daysSinceFirstSession: 10,
+      daysElapsedInWeek: 7,
+      activeDaysTarget: 5,
+      lastWeekScore: 78,
+    });
+
+    assert.strictEqual(res.targetPercent, 9);
+    assert.strictEqual(res.targetComponent, 5); // 0.09 * 50 = 4.5 -> round 5
+    assert.strictEqual(res.activeDaysComponent, 6); // 1/5 * 30 = 6
+    assert.strictEqual(res.completionRateComponent, 13); // 10/16 * 20 = 12.5 -> round 13
+    assert.strictEqual(res.score, 24);
+    assert.strictEqual(res.lastWeekScore, 78);
+  });
+
   test("Menghitung skor sempurna (100) dan menolak bonus lembur", () => {
     const res = calculateWeeklyConsistencyScore({
       weeklyActualMinutes: 900, // Melebihi target 600m (150%)
@@ -129,9 +212,21 @@ describe("Weekly Consistency Score", () => {
 });
 
 describe("4-Week Study Trend Analysis", () => {
-  test("Mengembalikan INSUFFICIENT_DATA bila data kurang dari 3 minggu", () => {
-    const res = calculateStudyTrend(300, [280, 290], 2);
+  test("Poin 4: Label 'baru N dari 3 minggu' bila data kurang dari 3 minggu tapi tetap simpan weeklyBars", () => {
+    const weeklyBars = [
+      { weekLabel: "M-3", minutes: 0 },
+      { weekLabel: "M-2", minutes: 0 },
+      { weekLabel: "M-1", minutes: 120 },
+      { weekLabel: "Minggu ini", minutes: 200 },
+    ];
+    const res = calculateStudyTrend(200, [120], 1, weeklyBars);
     assert.strictEqual(res.direction, "INSUFFICIENT_DATA");
+    assert.strictEqual(res.label, "baru 1 dari 3 minggu");
+    assert.deepStrictEqual(res.weeklyBars, weeklyBars);
+
+    const res2 = calculateStudyTrend(200, [120, 150], 2, weeklyBars);
+    assert.strictEqual(res2.direction, "INSUFFICIENT_DATA");
+    assert.strictEqual(res2.label, "baru 2 dari 3 minggu");
   });
 
   test("Mendeteksi tren stabil dalam pita +-15%", () => {
@@ -144,5 +239,23 @@ describe("4-Week Study Trend Analysis", () => {
     // Past average: 300m, this week: 400m (+33% -> UP)
     const res = calculateStudyTrend(400, [300, 300, 300, 300], 4);
     assert.strictEqual(res.direction, "UP");
+  });
+});
+
+describe("Median Weekly Target Recommendation", () => {
+  test("Poin 7: Mengembalikan null jika data kurang dari 3 minggu", () => {
+    assert.strictEqual(calculateMedianWeeklyMinutes([]), null);
+    assert.strictEqual(calculateMedianWeeklyMinutes([300]), null);
+    assert.strictEqual(calculateMedianWeeklyMinutes([300, 450]), null);
+  });
+
+  test("Poin 7: Menghitung median untuk data ganjil (>= 3 minggu)", () => {
+    // [120, 300, 240] -> terurut: [120, 240, 300] -> median 240
+    assert.strictEqual(calculateMedianWeeklyMinutes([120, 300, 240]), 240);
+  });
+
+  test("Poin 7: Menghitung median untuk data genap (>= 4 minggu)", () => {
+    // [100, 400, 200, 300] -> terurut: [100, 200, 300, 400] -> median (200 + 300) / 2 = 250
+    assert.strictEqual(calculateMedianWeeklyMinutes([100, 400, 200, 300]), 250);
   });
 });

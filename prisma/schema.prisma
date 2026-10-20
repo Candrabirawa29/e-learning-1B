@@ -89,6 +89,16 @@ enum AlertIntensity {
   STRONG
 }
 
+enum CourseKind {
+  REGULAR
+  EXTRA
+}
+
+enum CourseVisibility {
+  CLASS
+  PRIVATE
+}
+
 model Profile {
   id                 String            @id // Matches Supabase auth.users.id
   email              String            @unique
@@ -109,6 +119,7 @@ model Profile {
   createdAnnouncements Announcement[]    @relation("AnnouncementCreatedBy")
   activityLogs         ActivityLog[]     @relation("ActorLogs")
   coursePJs            CoursePJ[]        @relation("CoursePJUser")
+  ownedCourses         Course[]          @relation("CourseOwner")
   focusSessions        FocusSession[]    @relation("UserFocusSessions")
   studyPreference      StudyPreference?  @relation("UserStudyPreference")
   aiUsages             AiUsage[]         @relation("UserAiUsage")
@@ -151,16 +162,21 @@ model ClassMembership {
 }
 
 model Course {
-  id          String   @id @default(uuid())
+  id          String           @id @default(uuid())
   classId     String
   name        String
   code        String?
   description String?
   lecturer    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  kind        CourseKind       @default(REGULAR)
+  visibility  CourseVisibility @default(CLASS)
+  ownerId     String?
+  archivedAt  DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
 
   class       Class            @relation(fields: [classId], references: [id], onDelete: Cascade)
+  owner       Profile?         @relation("CourseOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   topics      Topic[]
   materials   Material[]
   tasks       Task[]
@@ -169,6 +185,8 @@ model Course {
   focusSessions FocusSession[]
 
   @@index([classId])
+  @@index([ownerId])
+  @@index([kind, visibility])
   @@map("courses")
 }
 
@@ -398,6 +416,8 @@ model StudyPreference {
   longBreakInterval  Int            @default(4)
   weeklyTargetMin    Int            @default(600)
   minActiveDayMin    Int            @default(25)
+  showTargetRemaining Boolean       @default(true)
+  activeDaysTarget   Int            @default(5)
   aiConsent          Boolean        @default(false)
   floatMode          FloatMode      @default(IN_APP)
   alertIntensity     AlertIntensity @default(NORMAL)

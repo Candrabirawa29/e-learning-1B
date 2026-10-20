@@ -72,6 +72,9 @@ export const getCurrentSession = cache(async (): Promise<CurrentUserSession> => 
         },
       },
       coursePJs: {
+        where: {
+          course: { kind: "REGULAR", archivedAt: null },
+        },
         select: {
           courseId: true,
         },
@@ -109,6 +112,9 @@ export const getCurrentSession = cache(async (): Promise<CurrentUserSession> => 
           },
         },
         coursePJs: {
+          where: {
+            course: { kind: "REGULAR", archivedAt: null },
+          },
           select: {
             courseId: true,
           },
@@ -126,6 +132,9 @@ export const getCurrentSession = cache(async (): Promise<CurrentUserSession> => 
           },
         },
         coursePJs: {
+          where: {
+            course: { kind: "REGULAR", archivedAt: null },
+          },
           select: {
             courseId: true,
           },
@@ -153,6 +162,9 @@ export const getCurrentSession = cache(async (): Promise<CurrentUserSession> => 
           },
         },
         coursePJs: {
+          where: {
+            course: { kind: "REGULAR", archivedAt: null },
+          },
           select: {
             courseId: true,
           },

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentSession } from "@/lib/auth/session";
+import { visibleCoursesWhere } from "@/lib/courses/course-filter";
 import { Navbar } from "@/components/layout/Navbar";
 import {
   PublicDashboard,
@@ -34,7 +35,10 @@ export default async function HomePage() {
     if (class1B) {
       [tasks, materials, announcements, courses] = await Promise.all([
         prisma.task.findMany({
-          where: { classId: class1B.id },
+          where: {
+            classId: class1B.id,
+            OR: [{ courseId: null }, { course: { kind: "REGULAR", archivedAt: null } }],
+          },
           include: {
             course: true,
             createdBy: true,
@@ -45,7 +49,10 @@ export default async function HomePage() {
         }),
         prisma.material.findMany({
           where: {
-            course: { classId: class1B.id },
+            course: {
+              classId: class1B.id,
+              ...visibleCoursesWhere(session),
+            },
             visibility: "PUBLIC",
           },
           include: {
@@ -61,7 +68,10 @@ export default async function HomePage() {
           orderBy: [{ isPinned: "desc" }, { publishedAt: "desc" }],
         }),
         prisma.course.findMany({
-          where: { classId: class1B.id },
+          where: {
+            classId: class1B.id,
+            ...visibleCoursesWhere(session),
+          },
           orderBy: { name: "asc" },
         }),
       ]);

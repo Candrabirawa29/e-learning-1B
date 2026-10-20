@@ -6,6 +6,7 @@ import {
   offsetDateKey,
   getWibDayOfWeek,
   formatWib,
+  diffWibCalendarDays,
 } from "@/lib/datetime";
 import {
   getDailyStudyAggregation,
@@ -15,11 +16,13 @@ import {
   getTaskBreakdownIfSufficient,
   getSessionCompletionRatio,
   getWeeklyTrendRecords,
+  getFirstSessionDate,
 } from "@/lib/analytics/study-queries";
 import {
   calculateTolerantStreak,
   calculateWeeklyConsistencyScore,
   calculateStudyTrend,
+  calculateMedianWeeklyMinutes,
 } from "@/lib/analytics/study-metrics";
 import { getOrCreateStudyPreference } from "@/actions/focus";
 import { StudyAnalyticsDashboardData, TrendChartPoint } from "@/types/analytics";
@@ -56,7 +59,13 @@ export async function getStudyAnalyticsDashboard(
     prevEndKey = `${prevYear}-${todayKey.slice(5)}`;
   }
 
-  // 2. Query data untuk periode aktif dan periode sebelumnya
+  // Minggu ini (dimulai hari Senin)
+  const todayDow = getWibDayOfWeek(todayKey); // 1 = Senin, ..., 7 = Minggu
+  const thisWeekMondayKey = offsetDateKey(todayKey, -(todayDow - 1));
+  const lastWeekMondayKey = offsetDateKey(thisWeekMondayKey, -7);
+  const lastWeekSundayKey = offsetDateKey(thisWeekMondayKey, -1);
+
+  // 2. Query data untuk periode aktif, periode sebelumnya, dan riwayat sesi
   const [
     currentDailyRows,
     prevDailyRows,
@@ -65,6 +74,9 @@ export async function getStudyAnalyticsDashboard(
     taskData,
     completion,
     weeklyRecords,
+    firstSessionDate,
+    thisWeekCompletion,
+    lastWeekCompletion,
   ] = await Promise.all([
     getDailyStudyAggregation(userId, currentStartKey, currentEndKey),
     getDailyStudyAggregation(userId, prevStartKey, prevEndKey),
@@ -73,6 +85,9 @@ export async function getStudyAnalyticsDashboard(
     getTaskBreakdownIfSufficient(userId, currentStartKey, currentEndKey),
     getSessionCompletionRatio(userId, currentStartKey, currentEndKey),
     getWeeklyTrendRecords(userId),
+    getFirstSessionDate(userId),
+    getSessionCompletionRatio(userId, thisWeekMondayKey, todayKey),
+    getSessionCompletionRatio(userId, lastWeekMondayKey, lastWeekSundayKey),
   ]);
 
   // 3. Query data Heatmap (53 minggu ke belakang dari hari ini untuk streak & GitHub heatmap)
@@ -99,9 +114,6 @@ export async function getStudyAnalyticsDashboard(
   // 5. Hitung Metrik Hari Ini, Minggu Ini, Bulan Ini (WIB)
   const todayMinutes = annualMap.get(todayKey)?.minutes || 0;
 
-  // Minggu ini (dimulai hari Senin)
-  const todayDow = getWibDayOfWeek(todayKey); // 1 = Senin, ..., 7 = Minggu
-  const thisWeekMondayKey = offsetDateKey(todayKey, -(todayDow - 1));
   let thisWeekMinutes = 0;
   let activeDaysInWeek = 0;
   for (let i = 0; i < 7; i++) {
@@ -139,24 +151,87 @@ export async function getStudyAnalyticsDashboard(
     );
   }
 
-  // 7. Konsistensi Mingguan (0 - 100)
-  // Periksa apakah user memiliki data minimal 1 minggu (7 hari dari sesi pertama)
-  const hasFullWeekData = streakMinutesMap.size >= 7 || weeklyRecords.availableWeeksCount >= 1;
+  // 7. Hitung Hari Sejak Sesi Pertama & Skor Minggu Lalu
+  const daysSinceFirstSession = firstSessionDate
+    ? diffWibCalendarDays(todayKey, wibDayKey(firstSessionDate)) + 1
+    : 0;
+
+  let lastWeekMinutes = 0;
+  let activeDaysInLastWeek = 0;
+  for (let i = 0; i < 7; i++) {
+    const k = offsetDateKey(lastWeekMondayKey, i);
+    const m = annualMap.get(k)?.minutes || 0;
+    lastWeekMinutes += m;
+    if (m >= preferences.minActiveDayMin) {
+      activeDaysInLastWeek++;
+    }
+  }
+
+  let lastWeekScore: number | null = null;
+  if (firstSessionDate && wibDayKey(firstSessionDate) <= lastWeekSundayKey) {
+    const lastWeekConsistency = calculateWeeklyConsistencyScore({
+      weeklyActualMinutes: lastWeekMinutes,
+      weeklyTargetMinutes: preferences.weeklyTargetMin,
+      activeDaysInWeek: activeDaysInLastWeek,
+      startedSessionsCount: lastWeekCompletion.startedCount,
+      completedSessionsCount: lastWeekCompletion.completedCount,
+      hasFullWeekData: true,
+      daysSinceFirstSession: 7,
+      daysElapsedInWeek: 7,
+      activeDaysTarget: preferences.activeDaysTarget ?? 5,
+    });
+    lastWeekScore = lastWeekConsistency.score;
+  }
+
+  // Indeks Konsistensi Mingguan (0 - 100)
   const consistency = calculateWeeklyConsistencyScore({
     weeklyActualMinutes: thisWeekMinutes,
     weeklyTargetMinutes: preferences.weeklyTargetMin,
     activeDaysInWeek,
-    startedSessionsCount: completion.startedCount,
-    completedSessionsCount: completion.completedCount,
-    hasFullWeekData,
+    startedSessionsCount: thisWeekCompletion.startedCount,
+    completedSessionsCount: thisWeekCompletion.completedCount,
+    daysSinceFirstSession,
+    daysElapsedInWeek: todayDow,
+    activeDaysTarget: preferences.activeDaysTarget ?? 5,
+    lastWeekScore,
   });
 
-  // 8. Tren 4 Minggu (±15% pita netral)
+  // 8. Tren Belajar 4 Minggu dengan Batang Mingguan
+  let week1Minutes = 0;
+  for (let i = 0; i < 7; i++) {
+    const k = offsetDateKey(lastWeekMondayKey, i);
+    week1Minutes += annualMap.get(k)?.minutes || 0;
+  }
+  let week2Minutes = 0;
+  const week2Monday = offsetDateKey(thisWeekMondayKey, -14);
+  for (let i = 0; i < 7; i++) {
+    const k = offsetDateKey(week2Monday, i);
+    week2Minutes += annualMap.get(k)?.minutes || 0;
+  }
+  let week3Minutes = 0;
+  const week3Monday = offsetDateKey(thisWeekMondayKey, -21);
+  for (let i = 0; i < 7; i++) {
+    const k = offsetDateKey(week3Monday, i);
+    week3Minutes += annualMap.get(k)?.minutes || 0;
+  }
+
+  const weeklyBars = [
+    { weekLabel: "M-3", minutes: week3Minutes },
+    { weekLabel: "M-2", minutes: week2Minutes },
+    { weekLabel: "M-1", minutes: week1Minutes },
+    { weekLabel: "Minggu ini", minutes: thisWeekMinutes },
+  ];
+
   const trend = calculateStudyTrend(
-    weeklyRecords.thisWeekMinutes,
-    weeklyRecords.pastWeeksMinutes,
-    weeklyRecords.availableWeeksCount
+    thisWeekMinutes,
+    [week1Minutes, week2Minutes, week3Minutes],
+    weeklyRecords.availableWeeksCount,
+    weeklyBars
   );
+
+  // 9. Saran Target Mingguan dari Median Riwayat User Sendiri (>= 3 minggu)
+  const weeklyMinutesHistory = weeklyRecords.weeklyRows.map((r) => r.totalMinutes);
+  const suggestedWeeklyTargetMin = calculateMedianWeeklyMinutes(weeklyMinutesHistory);
 
   // 9. Format Data Chart Tren Harian (isi hari kosong dengan 0)
   const currentDailyMap = new Map<string, { minutes: number; count: number }>();
@@ -196,6 +271,7 @@ export async function getStudyAnalyticsDashboard(
         previousMinutes: prevMinutesTotal,
         percentChange,
       },
+      suggestedWeeklyTargetMin,
     },
     trendChartData,
     heatmapDataMap,
@@ -203,5 +279,6 @@ export async function getStudyAnalyticsDashboard(
     courses,
     taskData,
     preferences,
+    suggestedWeeklyTargetMin,
   };
 }

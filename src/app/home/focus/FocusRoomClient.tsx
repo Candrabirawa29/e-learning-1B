@@ -12,6 +12,7 @@ interface CourseOption {
   id: string;
   name: string;
   code: string | null;
+  kind?: "REGULAR" | "EXTRA";
 }
 
 interface TaskOption {

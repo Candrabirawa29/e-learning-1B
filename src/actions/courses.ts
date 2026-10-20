@@ -2,10 +2,171 @@
 
 import { prisma } from "@/lib/prisma";
 import { getCurrentSession, assertCanMutate } from "@/lib/auth/session";
-import { canManageCourse, canManageTopic } from "@/lib/auth/rbac";
+import { canManageCourse, canManageTopic, canArchiveCourse } from "@/lib/auth/rbac";
 import { createCourseSchema, courseScheduleSchema, topicSchema } from "@/lib/validations";
-import { Role } from "@prisma/client";
+import { Role, CourseKind, CourseVisibility } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+
+export async function createExtraCourseAction(data: {
+  name: string;
+  description?: string | null;
+  visibility?: CourseVisibility;
+}) {
+  const session = await getCurrentSession();
+  if (!session.user || !session.profile) {
+    throw new Error("Anda harus login.");
+  }
+  assertCanMutate(session);
+
+  const name = data.name?.trim();
+  if (!name) {
+    throw new Error("Nama topik belajar mandiri tidak boleh kosong.");
+  }
+
+  const class1B = await prisma.class.findUnique({ where: { code: "1-B" } });
+  if (!class1B) {
+    throw new Error("Kelas 1-B tidak ditemukan.");
+  }
+
+  const targetVisibility =
+    data.visibility === CourseVisibility.CLASS
+      ? CourseVisibility.CLASS
+      : CourseVisibility.PRIVATE;
+
+  const course = await prisma.course.create({
+    data: {
+      classId: class1B.id,
+      name,
+      description: data.description?.trim() || null,
+      kind: CourseKind.EXTRA,
+      visibility: targetVisibility,
+      ownerId: session.user.id,
+    },
+    select: {
+      id: true,
+      name: true,
+      code: true,
+      kind: true,
+      visibility: true,
+    },
+  });
+
+  revalidatePath("/home/materials");
+  revalidatePath("/home/focus");
+  revalidatePath("/home/study-analytics");
+
+  return { success: true, course };
+}
+
+export async function archiveCourseAction(courseId: string) {
+  const session = await getCurrentSession();
+  if (!session.user || !session.profile) {
+    throw new Error("Anda harus login.");
+  }
+  assertCanMutate(session);
+
+  const course = await prisma.course.findUnique({ where: { id: courseId } });
+  if (!course) {
+    throw new Error("Mata kuliah / topik tidak ditemukan.");
+  }
+
+  if (!canArchiveCourse(session, course)) {
+    throw new Error("Akses ditolak: Anda tidak memiliki izin untuk mengarsipkan mata kuliah/topik ini.");
+  }
+
+  await prisma.course.update({
+    where: { id: courseId },
+    data: {
+      archivedAt: new Date(),
+    },
+  });
+
+  revalidatePath("/home/materials");
+  revalidatePath(`/home/materials/${courseId}`);
+  revalidatePath("/home/focus");
+  revalidatePath("/home/study-analytics");
+  revalidatePath("/materials");
+  revalidatePath("/");
+
+  return { success: true };
+}
+
+export async function unarchiveCourseAction(courseId: string) {
+  const session = await getCurrentSession();
+  if (!session.user || !session.profile) {
+    throw new Error("Anda harus login.");
+  }
+  assertCanMutate(session);
+
+  const course = await prisma.course.findUnique({ where: { id: courseId } });
+  if (!course) {
+    throw new Error("Mata kuliah / topik tidak ditemukan.");
+  }
+
+  if (!canArchiveCourse(session, course)) {
+    throw new Error("Akses ditolak: Anda tidak memiliki izin untuk memulihkan mata kuliah/topik ini.");
+  }
+
+  await prisma.course.update({
+    where: { id: courseId },
+    data: {
+      archivedAt: null,
+    },
+  });
+
+  revalidatePath("/home/materials");
+  revalidatePath(`/home/materials/${courseId}`);
+  revalidatePath("/home/focus");
+  revalidatePath("/home/study-analytics");
+  revalidatePath("/materials");
+  revalidatePath("/");
+
+  return { success: true };
+}
+
+export async function updateCourseVisibilityAction(
+  courseId: string,
+  visibility: CourseVisibility
+) {
+  const session = await getCurrentSession();
+  if (!session.user || !session.profile) {
+    throw new Error("Anda harus login.");
+  }
+  assertCanMutate(session);
+
+  const course = await prisma.course.findUnique({ where: { id: courseId } });
+  if (!course) {
+    throw new Error("Mata kuliah / topik tidak ditemukan.");
+  }
+
+  if (course.kind !== CourseKind.EXTRA) {
+    throw new Error("Pengaturan visibilitas publik/pribadi hanya berlaku untuk topik belajar mandiri (EXTRA).");
+  }
+
+  if (course.ownerId !== session.user.id && session.effectiveRole !== "ADMIN") {
+    throw new Error("Akses ditolak: Hanya pemilik topik yang dapat mengubah visibilitas.");
+  }
+
+  if (visibility !== CourseVisibility.PRIVATE && visibility !== CourseVisibility.CLASS) {
+    throw new Error("Visibilitas tidak valid. Pilih PRIVATE atau CLASS.");
+  }
+
+  await prisma.course.update({
+    where: { id: courseId },
+    data: {
+      visibility,
+    },
+  });
+
+  revalidatePath("/home/materials");
+  revalidatePath(`/home/materials/${courseId}`);
+  revalidatePath("/home/focus");
+  revalidatePath("/home/study-analytics");
+  revalidatePath("/materials");
+  revalidatePath("/");
+
+  return { success: true, visibility };
+}
 
 export async function createCourseAction(data: {
   name: string;
@@ -40,6 +201,9 @@ export async function createCourseAction(data: {
       code: parsed.code || null,
       description: parsed.description || null,
       lecturer: parsed.lecturer || null,
+      kind: CourseKind.REGULAR,
+      visibility: CourseVisibility.CLASS,
+      ownerId: null,
       ...(session.effectiveRole === "PJ"
         ? {
             pjs: {
@@ -75,7 +239,8 @@ export async function updateCourseAction(
   }
   assertCanMutate(session);
 
-  if (!canManageCourse(session, courseId)) {
+  const course = await prisma.course.findUnique({ where: { id: courseId } });
+  if (!course || !canManageCourse(session, course)) {
     throw new Error("Akses ditolak: Anda tidak memiliki izin untuk mengedit mata kuliah ini.");
   }
 
@@ -105,6 +270,16 @@ export async function deleteCourseAction(courseId: string) {
     throw new Error("Anda harus login.");
   }
   assertCanMutate(session);
+
+  const course = await prisma.course.findUnique({ where: { id: courseId } });
+  if (!course) {
+    throw new Error("Mata kuliah tidak ditemukan.");
+  }
+
+  // Jika EXTRA, diarahkan ke arsip (arsip alih-alih hapus)
+  if (course.kind === CourseKind.EXTRA) {
+    return archiveCourseAction(courseId);
+  }
 
   if (session.effectiveRole !== "ADMIN") {
     throw new Error("Akses ditolak: Hanya Admin yang dapat menghapus mata kuliah.");
@@ -137,7 +312,12 @@ export async function addCourseScheduleAction(data: {
   }
   assertCanMutate(session);
 
-  if (!canManageCourse(session, data.courseId)) {
+  const course = await prisma.course.findUnique({ where: { id: data.courseId } });
+  if (!course || course.kind !== CourseKind.REGULAR) {
+    throw new Error("Jadwal mingguan hanya berlaku untuk mata kuliah resmi (REGULAR).");
+  }
+
+  if (!canManageCourse(session, course)) {
     throw new Error("Akses ditolak: Anda tidak memiliki izin untuk mengelola jadwal mata kuliah ini.");
   }
 
@@ -187,12 +367,17 @@ export async function updateCourseScheduleAction(
 
   const schedule = await prisma.courseSchedule.findUnique({
     where: { id: scheduleId },
+    include: { course: true },
   });
   if (!schedule) {
     throw new Error("Jadwal tidak ditemukan.");
   }
 
-  if (!canManageCourse(session, schedule.courseId)) {
+  if (schedule.course.kind !== CourseKind.REGULAR) {
+    throw new Error("Jadwal mingguan hanya berlaku untuk mata kuliah resmi (REGULAR).");
+  }
+
+  if (!canManageCourse(session, schedule.course)) {
     throw new Error("Akses ditolak.");
   }
 
@@ -229,12 +414,17 @@ export async function deleteCourseScheduleAction(scheduleId: string) {
 
   const schedule = await prisma.courseSchedule.findUnique({
     where: { id: scheduleId },
+    include: { course: true },
   });
   if (!schedule) {
     throw new Error("Jadwal tidak ditemukan.");
   }
 
-  if (!canManageCourse(session, schedule.courseId)) {
+  if (schedule.course.kind !== CourseKind.REGULAR) {
+    throw new Error("Jadwal mingguan hanya berlaku untuk mata kuliah resmi (REGULAR).");
+  }
+
+  if (!canManageCourse(session, schedule.course)) {
     throw new Error("Akses ditolak.");
   }
 
@@ -264,7 +454,8 @@ export async function createTopicAction(data: {
   }
   assertCanMutate(session);
 
-  if (!canManageTopic(session, data.courseId)) {
+  const course = await prisma.course.findUnique({ where: { id: data.courseId } });
+  if (!course || !canManageTopic(session, course)) {
     throw new Error("Akses ditolak: Anda tidak memiliki izin untuk mengelola sub-topik.");
   }
 
@@ -311,12 +502,13 @@ export async function updateTopicAction(
 
   const topic = await prisma.topic.findUnique({
     where: { id: topicId },
+    include: { course: true },
   });
   if (!topic) {
     throw new Error("Sub-topik tidak ditemukan.");
   }
 
-  if (!canManageTopic(session, topic.courseId)) {
+  if (!canManageTopic(session, topic.course)) {
     throw new Error("Akses ditolak: Anda tidak memiliki izin untuk mengedit sub-topik.");
   }
 
@@ -350,12 +542,13 @@ export async function deleteTopicAction(topicId: string) {
 
   const topic = await prisma.topic.findUnique({
     where: { id: topicId },
+    include: { course: true },
   });
   if (!topic) {
     throw new Error("Sub-topik tidak ditemukan.");
   }
 
-  if (!canManageTopic(session, topic.courseId)) {
+  if (!canManageTopic(session, topic.course)) {
     throw new Error("Akses ditolak: Anda tidak memiliki izin untuk menghapus sub-topik.");
   }
 
@@ -382,7 +575,8 @@ export async function reorderTopicsAction(courseId: string, orderedTopicIds: str
   }
   assertCanMutate(session);
 
-  if (!canManageTopic(session, courseId)) {
+  const course = await prisma.course.findUnique({ where: { id: courseId } });
+  if (!course || !canManageTopic(session, course)) {
     throw new Error("Akses ditolak: Anda tidak memiliki izin untuk mengatur urutan sub-topik.");
   }
 
@@ -412,6 +606,11 @@ export async function assignCoursePJAction(courseId: string, userIds: string[]) 
 
   if (session.effectiveRole !== "ADMIN") {
     throw new Error("Akses ditolak: Hanya Admin yang dapat menetapkan PJ Mata Kuliah.");
+  }
+
+  const course = await prisma.course.findUnique({ where: { id: courseId } });
+  if (!course || course.kind !== CourseKind.REGULAR) {
+    throw new Error("Penugasan PJ hanya berlaku untuk mata kuliah resmi (REGULAR).");
   }
 
   // Transaksi: ganti seluruh list PJ course ini

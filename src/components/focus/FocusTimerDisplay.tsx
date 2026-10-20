@@ -23,8 +23,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { FocusMode, FocusSessionStatus } from "@prisma/client";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { FocusMode, FocusSessionStatus, CourseKind } from "@prisma/client";
 import { formatSecToMMSS, formatOverdueText } from "@/lib/focus/session-logic";
+import { createExtraCourseAction } from "@/actions/courses";
+import { toast } from "sonner";
 import {
   Play,
   Pause,
@@ -46,12 +56,14 @@ import {
   Trash2,
   ChevronDown,
   Info,
+  Plus,
 } from "lucide-react";
 
-interface CourseOption {
+export interface CourseOption {
   id: string;
   name: string;
   code: string | null;
+  kind?: CourseKind;
 }
 
 interface TaskOption {
@@ -109,6 +121,52 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
   const [isEnding, setIsEnding] = React.useState<boolean>(false);
   const [isDiscardDialogOpen, setIsDiscardDialogOpen] = React.useState<boolean>(false);
 
+  // Belajar Mandiri (EXTRA course) creation state & local list
+  const [courseList, setCourseList] = React.useState<CourseOption[]>(courses);
+  const [isAddTopicOpen, setIsAddTopicOpen] = React.useState<boolean>(false);
+  const [newTopicName, setNewTopicName] = React.useState<string>("");
+  const [isCreatingTopic, setIsCreatingTopic] = React.useState<boolean>(false);
+
+  React.useEffect(() => {
+    setCourseList(courses);
+  }, [courses]);
+
+  const regularCourses = React.useMemo(
+    () => courseList.filter((c) => c.kind !== "EXTRA"),
+    [courseList]
+  );
+  const extraCourses = React.useMemo(
+    () => courseList.filter((c) => c.kind === "EXTRA"),
+    [courseList]
+  );
+
+  const handleCreateTopic = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newTopicName.trim();
+    if (!name) return;
+    setIsCreatingTopic(true);
+    try {
+      const res = await createExtraCourseAction({ name });
+      if (res.success && res.course) {
+        const newCourse: CourseOption = {
+          id: res.course.id,
+          name: res.course.name,
+          code: res.course.code,
+          kind: res.course.kind,
+        };
+        setCourseList((prev) => [...prev, newCourse]);
+        await changeContext({ courseId: newCourse.id, taskId: null });
+        setNewTopicName("");
+        setIsAddTopicOpen(false);
+        toast.success(`Topik mandiri "${name}" berhasil ditambahkan.`);
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Gagal menambahkan topik.");
+    } finally {
+      setIsCreatingTopic(false);
+    }
+  };
+
   // Sync note input with active session note or summary note
   React.useEffect(() => {
     if (summarySession?.note) {
@@ -145,7 +203,7 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
   const dashoffset = circumference - (progressPercent / 100) * circumference;
 
   // Selected names for chips
-  const selectedCourse = courses.find((c) => c.id === selectedCourseId);
+  const selectedCourse = courseList.find((c) => c.id === selectedCourseId);
   const selectedTask = tasks.find((t) => t.id === selectedTaskId);
 
   // Filter tasks if course selected
@@ -274,68 +332,99 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
                 </Button>
               }
             />
-            <DropdownMenuContent align="center" className="w-56 max-h-64 overflow-y-auto">
-              <DropdownMenuLabel className="text-[11px] text-muted-foreground">
-                Pilih Mata Kuliah
-              </DropdownMenuLabel>
+            <DropdownMenuContent align="center" className="w-60 max-h-72 overflow-y-auto">
               <DropdownMenuItem
                 onClick={() => changeContext({ courseId: null })}
                 className="text-xs"
               >
                 Tanpa Mata Kuliah
               </DropdownMenuItem>
+
+              {regularCourses.length > 0 && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel className="text-[11px] font-semibold text-muted-foreground">
+                    Mata Kuliah
+                  </DropdownMenuLabel>
+                  {regularCourses.map((c) => (
+                    <DropdownMenuItem
+                      key={c.id}
+                      onClick={() => changeContext({ courseId: c.id })}
+                      className="text-xs"
+                    >
+                      <span className="truncate">{c.name}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </>
+              )}
+
               <DropdownMenuSeparator />
-              {courses.map((c) => (
+              <DropdownMenuLabel className="text-[11px] font-semibold text-muted-foreground">
+                Belajar Mandiri
+              </DropdownMenuLabel>
+              {extraCourses.map((c) => (
                 <DropdownMenuItem
                   key={c.id}
-                  onClick={() => changeContext({ courseId: c.id })}
+                  onClick={() => changeContext({ courseId: c.id, taskId: null })}
                   className="text-xs"
                 >
                   <span className="truncate">{c.name}</span>
                 </DropdownMenuItem>
               ))}
+              <DropdownMenuItem
+                onClick={() => {
+                  setNewTopicName("");
+                  setIsAddTopicOpen(true);
+                }}
+                className="text-xs text-primary font-medium focus:text-primary gap-1.5 cursor-pointer"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>+ Tambah topik</span>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Chip 2: Task */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-xs rounded-full gap-1.5 px-3 max-w-[220px] font-normal cursor-pointer"
-                >
-                  <CheckSquare className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <span className="truncate">
-                    {selectedTask ? selectedTask.title : "Pilih tugas"}
-                  </span>
-                  <ChevronDown className="h-3 w-3 opacity-50 shrink-0" />
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="center" className="w-56 max-h-64 overflow-y-auto">
-              <DropdownMenuLabel className="text-[11px] text-muted-foreground">
-                Pilih Tugas Terkait
-              </DropdownMenuLabel>
-              <DropdownMenuItem
-                onClick={() => changeContext({ taskId: null })}
-                className="text-xs"
-              >
-                Tanpa Tugas
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              {availableTasks.map((t) => (
+          {/* Chip 2: Task (Disembunyikan jika topik EXTRA dipilih) */}
+          {selectedCourse?.kind !== "EXTRA" && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs rounded-full gap-1.5 px-3 max-w-[220px] font-normal cursor-pointer"
+                  >
+                    <CheckSquare className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="truncate">
+                      {selectedTask ? selectedTask.title : "Pilih tugas"}
+                    </span>
+                    <ChevronDown className="h-3 w-3 opacity-50 shrink-0" />
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="center" className="w-56 max-h-64 overflow-y-auto">
+                <DropdownMenuLabel className="text-[11px] text-muted-foreground">
+                  Pilih Tugas Terkait
+                </DropdownMenuLabel>
                 <DropdownMenuItem
-                  key={t.id}
-                  onClick={() => changeContext({ taskId: t.id })}
+                  onClick={() => changeContext({ taskId: null })}
                   className="text-xs"
                 >
-                  <span className="truncate">{t.title}</span>
+                  Tanpa Tugas
                 </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                <DropdownMenuSeparator />
+                {availableTasks.map((t) => (
+                  <DropdownMenuItem
+                    key={t.id}
+                    onClick={() => changeContext({ taskId: t.id })}
+                    className="text-xs"
+                  >
+                    <span className="truncate">{t.title}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
 
           {/* Chip 3: Mode */}
           <DropdownMenu>
@@ -758,6 +847,53 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Modal Tambah Topik Mandiri Inline */}
+      <Dialog open={isAddTopicOpen} onOpenChange={setIsAddTopicOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-semibold">
+              Tambah Topik Belajar Mandiri
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleCreateTopic} className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <label htmlFor="topic-name-input" className="text-xs font-medium text-foreground">
+                Nama Topik
+              </label>
+              <Input
+                id="topic-name-input"
+                value={newTopicName}
+                onChange={(e) => setNewTopicName(e.target.value)}
+                placeholder="Contoh: Belajar Rust, Persiapan Sertifikasi..."
+                className="text-xs h-9"
+                autoFocus
+                disabled={isCreatingTopic}
+              />
+            </div>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsAddTopicOpen(false)}
+                disabled={isCreatingTopic}
+                className="text-xs"
+              >
+                Batal
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={!newTopicName.trim() || isCreatingTopic}
+                className="text-xs"
+              >
+                {isCreatingTopic ? "Menyimpan..." : "Simpan Topik"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

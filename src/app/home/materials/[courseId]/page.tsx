@@ -1,9 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentSession } from "@/lib/auth/session";
+import { visibleCoursesWhere } from "@/lib/courses/course-filter";
 import { CourseDetailTabs } from "@/components/courses/CourseDetailTabs";
 import { Badge } from "@/components/ui/badge";
 import { minutesToTimeString, DAYS_OF_WEEK_INDO } from "@/lib/date";
-import { ArrowLeft, BookOpen, Clock, User, ShieldCheck } from "lucide-react";
+import { ArrowLeft, BookOpen, Clock, User, ShieldCheck, Sparkles, Archive, Lock, Users } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -22,9 +23,16 @@ export default async function CourseDetailPage({
 
   if (!class1B) return notFound();
 
-  const course = await prisma.course.findUnique({
-    where: { id: courseId },
+  const course = await prisma.course.findFirst({
+    where: {
+      id: courseId,
+      classId: class1B.id,
+      ...visibleCoursesWhere(session, { includeArchived: true }),
+    },
     include: {
+      owner: {
+        select: { id: true, name: true, email: true },
+      },
       schedules: {
         orderBy: [{ dayOfWeek: "asc" }, { startMinute: "asc" }],
       },
@@ -66,7 +74,7 @@ export default async function CourseDetailPage({
     },
   });
 
-  if (!course || course.classId !== class1B.id) {
+  if (!course) {
     return notFound();
   }
 
@@ -80,6 +88,10 @@ export default async function CourseDetailPage({
     orderBy: { name: "asc" },
   });
 
+  const isExtra = course.kind === "EXTRA";
+  const isOwner = session?.user?.id === course.ownerId;
+  const isArchived = Boolean(course.archivedAt);
+
   return (
     <div className="space-y-6">
       {/* Back Button & Course Header */}
@@ -92,18 +104,55 @@ export default async function CourseDetailPage({
           Kembali ke Katalog Mata Kuliah
         </Link>
 
+        {/* Warning banner jika topik diarsipkan */}
+        {isArchived && (
+          <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-center gap-2.5 text-xs text-amber-800 dark:text-amber-200">
+            <Archive className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <div>
+              <p className="font-semibold">Topik ini sedang diarsipkan</p>
+              <p className="text-[11px] text-amber-700/80 dark:text-amber-300/80 mt-0.5">
+                Topik ini disembunyikan dari katalog aktif dan pemilih sesi fokus. Anda dapat memulihkannya kapan saja melalui tombol &quot;Pulihkan Topik&quot;.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="p-4 bg-card border rounded-lg shadow-xs space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="space-y-1">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <div className="p-1.5 rounded-md bg-primary/10 text-primary">
                   <BookOpen className="h-4 w-4" />
                 </div>
-                {course.code && (
+                {isExtra ? (
+                  <>
+                    <Badge variant="secondary" className="text-xs bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border-emerald-200 gap-1">
+                      <Sparkles className="h-3 w-3" />
+                      Belajar Mandiri
+                    </Badge>
+                    {course.visibility === "CLASS" ? (
+                      <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border-blue-200 gap-1">
+                        <Users className="h-3 w-3" />
+                        Publik Kelas 1-B
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-xs bg-muted text-muted-foreground border-border gap-1">
+                        <Lock className="h-3 w-3" />
+                        Pribadi (Hanya Saya)
+                      </Badge>
+                    )}
+                    {isArchived && (
+                      <Badge variant="secondary" className="text-xs bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border-amber-300 gap-1">
+                        <Archive className="h-3 w-3" />
+                        Diarsipkan
+                      </Badge>
+                    )}
+                  </>
+                ) : course.code ? (
                   <Badge variant="outline" className="text-xs font-mono font-semibold">
                     {course.code}
                   </Badge>
-                )}
+                ) : null}
                 <h1 className="text-lg font-bold tracking-tight text-foreground">
                   {course.name}
                 </h1>
@@ -115,8 +164,8 @@ export default async function CourseDetailPage({
               )}
             </div>
 
-            {/* Jadwal Kuliah Pill */}
-            {course.schedules.length > 0 && (
+            {/* Jadwal Kuliah Pill (hanya untuk REGULAR) */}
+            {!isExtra && course.schedules.length > 0 && (
               <div className="flex flex-col gap-1 sm:items-end text-xs">
                 <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
                   Jadwal Kuliah
@@ -140,26 +189,43 @@ export default async function CourseDetailPage({
           </div>
 
           <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground pt-2 border-t">
-            {course.lecturer && (
+            {isExtra ? (
               <div className="flex items-center gap-1.5">
-                <User className="h-3.5 w-3.5 text-foreground" />
+                <User className="h-3.5 w-3.5 text-primary" />
                 <span>
-                  Dosen: <strong>{course.lecturer}</strong>
+                  {isOwner
+                    ? "Topik Belajar Mandiri Anda"
+                    : `Topik dibagikan oleh: ${course.owner?.name || course.owner?.email?.split("@")[0] || "Teman Sekelas"}`}
+                  {" "}&bull;{" "}
+                  {course.visibility === "CLASS"
+                    ? "Dapat diakses seluruh anggota Kelas 1-B"
+                    : "Hanya dapat diakses oleh Anda"}
                 </span>
               </div>
-            )}
-
-            <div className="flex items-center gap-1.5">
-              <ShieldCheck className="h-3.5 w-3.5 text-primary" />
-              <span>
-                PJ Mata Kuliah:{" "}
-                {course.pjs.length === 0 ? (
-                  <span className="italic">Belum ada PJ</span>
-                ) : (
-                  course.pjs.map((p) => p.user.name || p.user.email.split("@")[0]).join(", ")
+            ) : (
+              <>
+                {course.lecturer && (
+                  <div className="flex items-center gap-1.5">
+                    <User className="h-3.5 w-3.5 text-foreground" />
+                    <span>
+                      Dosen: <strong>{course.lecturer}</strong>
+                    </span>
+                  </div>
                 )}
-              </span>
-            </div>
+
+                <div className="flex items-center gap-1.5">
+                  <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+                  <span>
+                    PJ Mata Kuliah:{" "}
+                    {course.pjs.length === 0 ? (
+                      <span className="italic">Belum ada PJ</span>
+                    ) : (
+                      course.pjs.map((p) => p.user.name || p.user.email.split("@")[0]).join(", ")
+                    )}
+                  </span>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -172,6 +238,10 @@ export default async function CourseDetailPage({
           code: course.code,
           description: course.description,
           lecturer: course.lecturer,
+          kind: course.kind,
+          visibility: course.visibility,
+          ownerId: course.ownerId,
+          archivedAt: course.archivedAt,
         }}
         topics={course.topics}
         materials={course.materials}

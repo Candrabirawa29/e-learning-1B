@@ -1,12 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/session";
+import { visibleCoursesWhere } from "@/lib/courses/course-filter";
 import { FocusRoomClient } from "./FocusRoomClient";
 import { Badge } from "@/components/ui/badge";
 
 export const dynamic = "force-dynamic";
 
 export default async function FocusPage() {
-  await requireUser();
+  const session = await requireUser();
 
   const class1B = await prisma.class.findUnique({
     where: { code: "1-B" },
@@ -17,12 +18,18 @@ export default async function FocusPage() {
   // Load available courses and active tasks for optional assignment in focus session
   const [courses, tasks] = await Promise.all([
     prisma.course.findMany({
-      where: { classId: class1B.id },
-      select: { id: true, name: true, code: true },
+      where: visibleCoursesWhere(session, { classId: class1B.id }),
+      select: { id: true, name: true, code: true, kind: true },
       orderBy: { name: "asc" },
     }),
     prisma.task.findMany({
-      where: { classId: class1B.id },
+      where: {
+        classId: class1B.id,
+        OR: [
+          { courseId: null },
+          { course: { kind: "REGULAR", archivedAt: null } },
+        ],
+      },
       select: { id: true, title: true, courseId: true },
       orderBy: [{ deadline: "asc" }, { createdAt: "desc" }],
       take: 50,

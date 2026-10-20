@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentSession } from "@/lib/auth/session";
+import { visibleCoursesWhere } from "@/lib/courses/course-filter";
 import { MemberDashboard } from "@/components/dashboard/MemberDashboard";
 import { AdminPjDashboard } from "@/components/dashboard/AdminPjDashboard";
 import { ActiveTaskProgressData } from "@/components/dashboard/TaskProgressStackedBar";
@@ -32,13 +33,16 @@ export default async function HomePage() {
   if (session.effectiveRole === "GUEST" || !session.user || !session.profile) {
     const [tasks, materials, announcements] = await Promise.all([
       prisma.task.findMany({
-        where: { classId: class1B.id },
+        where: {
+          classId: class1B.id,
+          OR: [{ courseId: null }, { course: { kind: "REGULAR", archivedAt: null } }],
+        },
         select: { id: true, title: true, priority: true, deadline: true, course: { select: { name: true } } },
         take: 5,
         orderBy: [{ deadline: "asc" }, { createdAt: "desc" }],
       }),
       prisma.material.findMany({
-        where: { course: { classId: class1B.id } },
+        where: { course: { classId: class1B.id, kind: "REGULAR", archivedAt: null } },
         select: { id: true, title: true, materialType: true, course: { select: { name: true } } },
         take: 5,
         orderBy: { createdAt: "desc" },
@@ -136,7 +140,10 @@ export default async function HomePage() {
 
   const [tasks, materials, announcements, progressGroupBy] = await Promise.all([
     prisma.task.findMany({
-      where: { classId: class1B.id },
+      where: {
+        classId: class1B.id,
+        OR: [{ courseId: null }, { course: { kind: "REGULAR", archivedAt: null } }],
+      },
       include: {
         course: { select: { id: true, name: true, code: true } },
         createdBy: { select: { id: true, name: true, email: true } },
@@ -146,7 +153,12 @@ export default async function HomePage() {
       orderBy: [{ deadline: "asc" }, { createdAt: "desc" }],
     }),
     prisma.material.findMany({
-      where: { course: { classId: class1B.id } },
+      where: {
+        course: {
+          classId: class1B.id,
+          ...visibleCoursesWhere(session),
+        },
+      },
       include: { course: { select: { name: true } } },
       orderBy: { createdAt: "desc" },
     }),
@@ -159,7 +171,10 @@ export default async function HomePage() {
       by: ["taskId", "status"],
       where: {
         profileId: { in: activeProfileIds },
-        task: { classId: class1B.id },
+        task: {
+          classId: class1B.id,
+          OR: [{ courseId: null }, { course: { kind: "REGULAR", archivedAt: null } }],
+        },
       },
       _count: { profileId: true },
     }),

@@ -37,6 +37,8 @@ export interface StudyPreferenceDto {
   longBreakInterval: number;
   weeklyTargetMin: number;
   minActiveDayMin: number;
+  showTargetRemaining: boolean;
+  activeDaysTarget: number;
   aiConsent: boolean;
   floatMode: FloatMode;
   alertIntensity: AlertIntensity;

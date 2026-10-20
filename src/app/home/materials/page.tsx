@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentSession } from "@/lib/auth/session";
+import { visibleCoursesWhere } from "@/lib/courses/course-filter";
 import { WeeklySchedule } from "@/components/courses/WeeklySchedule";
 import { CourseCardGrid } from "@/components/courses/CourseCardGrid";
 
@@ -12,9 +13,15 @@ export default async function HomeMaterialsPage() {
   ]);
   if (!class1B) return null;
 
-  const [schedules, courses, members] = await Promise.all([
+  const [schedules, courses, archivedCourses, members] = await Promise.all([
     prisma.courseSchedule.findMany({
-      where: { course: { classId: class1B.id } },
+      where: {
+        course: {
+          classId: class1B.id,
+          kind: "REGULAR",
+          archivedAt: null,
+        },
+      },
       include: {
         course: {
           select: {
@@ -28,8 +35,15 @@ export default async function HomeMaterialsPage() {
       orderBy: [{ dayOfWeek: "asc" }, { startMinute: "asc" }],
     }),
     prisma.course.findMany({
-      where: { classId: class1B.id },
+      where: visibleCoursesWhere(session, { classId: class1B.id }),
       include: {
+        owner: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
         pjs: {
           include: {
             user: {
@@ -51,6 +65,40 @@ export default async function HomeMaterialsPage() {
       },
       orderBy: { name: "asc" },
     }),
+    prisma.course.findMany({
+      where: visibleCoursesWhere(session, {
+        classId: class1B.id,
+        onlyArchived: true,
+      }),
+      include: {
+        owner: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        pjs: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
+        _count: {
+          select: {
+            materials: true,
+            tasks: true,
+            topics: true,
+          },
+        },
+      },
+      orderBy: { archivedAt: "desc" },
+    }),
     prisma.profile.findMany({
       where: {
         memberships: {
@@ -68,16 +116,19 @@ export default async function HomeMaterialsPage() {
 
   return (
     <div className="space-y-8">
-      {/* Top: Weekly Schedule */}
+      {/* Top: Weekly Schedule (Mata Kuliah Resmi REGULAR) */}
       <WeeklySchedule
         schedules={schedules}
-        courses={courses.map((c) => ({ id: c.id, name: c.name, code: c.code }))}
+        courses={courses
+          .filter((c) => c.kind === "REGULAR")
+          .map((c) => ({ id: c.id, name: c.name, code: c.code }))}
         session={session}
       />
 
-      {/* Bottom: Course Cards */}
+      {/* Bottom: Course Cards & Belajar Tambahan */}
       <CourseCardGrid
         courses={courses}
+        archivedCourses={archivedCourses}
         members={members}
         session={session}
       />

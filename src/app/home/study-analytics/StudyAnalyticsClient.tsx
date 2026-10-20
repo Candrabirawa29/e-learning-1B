@@ -52,9 +52,9 @@ export function StudyAnalyticsClient({ initialData }: StudyAnalyticsClientProps)
   };
 
   const periodLabel = React.useMemo(() => {
-    if (filter === "7d") return "7 Hari Terakhir";
-    if (filter === "30d") return "30 Hari Terakhir";
-    return "Tahun Berjalan";
+    if (filter === "7d") return "7 hari terakhir";
+    if (filter === "30d") return "30 hari terakhir";
+    return "1 tahun ini";
   }, [filter]);
 
   // Transform trendChartData for StudyTrendAreaChart
@@ -99,7 +99,7 @@ export function StudyAnalyticsClient({ initialData }: StudyAnalyticsClientProps)
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              7 Hari
+              7 hari terakhir
             </button>
             <button
               onClick={() => handleFilterChange("30d")}
@@ -109,7 +109,7 @@ export function StudyAnalyticsClient({ initialData }: StudyAnalyticsClientProps)
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              30 Hari
+              30 hari terakhir
             </button>
             <button
               onClick={() => handleFilterChange("year")}
@@ -119,7 +119,7 @@ export function StudyAnalyticsClient({ initialData }: StudyAnalyticsClientProps)
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Tahun Ini
+              1 tahun ini
             </button>
           </div>
 
@@ -174,51 +174,117 @@ export function StudyAnalyticsClient({ initialData }: StudyAnalyticsClientProps)
             thisWeekMinutes={data.kpi.thisWeekMinutes}
             thisMonthMinutes={data.kpi.thisMonthMinutes}
             weeklyTargetMinutes={data.kpi.weeklyTargetMin}
+            showTargetRemaining={data.preferences.showTargetRemaining ?? true}
             consistency={data.kpi.consistency}
             trend={data.kpi.trend}
             startedSessionsCount={data.kpi.completion.startedCount}
             completedSessionsCount={data.kpi.completion.completedCount}
             completionRatio={data.kpi.completion.completionRatio}
             currentStreakDays={data.kpi.streak.currentStreakDays}
+            filterPeriodLabel={periodLabel}
           />
 
-          {/* Period Comparison Card */}
+          {/* Period Comparison Card: Dua Batang (Periode Ini vs Sebelumnya) & Selisih */}
           <Card className="border shadow-xs bg-muted/20">
-            <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10 text-primary">
-                  <Clock className="h-4 w-4" />
+            <CardContent className="p-4 space-y-3 text-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                    <Clock className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-foreground text-sm">
+                      Perbandingan Periode
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Membandingkan durasi fokus {periodLabel} dengan periode sebelumnya berdurasi sama.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <div className="font-semibold text-foreground">
-                    Perbandingan dengan Periode Sebelumnya ({periodLabel})
-                  </div>
-                  <div className="text-muted-foreground">
-                    Fokus periode ini: <strong className="text-foreground">{Math.round(periodComparison.currentMinutes / 60 * 10) / 10} jam</strong> vs periode sebelumnya: <strong className="text-foreground">{Math.round(periodComparison.previousMinutes / 60 * 10) / 10} jam</strong>
-                  </div>
+
+                {/* Selisih Badge */}
+                <div className="flex items-center gap-2">
+                  {periodComparison.previousMinutes > 0 ? (
+                    periodComparison.percentChange !== null ? (
+                      periodComparison.percentChange > 0 ? (
+                        <Badge variant="outline" className="border-emerald-500 text-emerald-600 dark:text-emerald-400 gap-1 font-mono">
+                          <ArrowUpRight className="h-3 w-3" />
+                          +{Math.round(((periodComparison.currentMinutes - periodComparison.previousMinutes) / 60) * 10) / 10}j (+{periodComparison.percentChange}%)
+                        </Badge>
+                      ) : periodComparison.percentChange < 0 ? (
+                        <Badge variant="outline" className="border-amber-500 text-amber-600 dark:text-amber-400 gap-1 font-mono">
+                          <ArrowDownRight className="h-3 w-3" />
+                          {Math.round(((periodComparison.currentMinutes - periodComparison.previousMinutes) / 60) * 10) / 10}j ({periodComparison.percentChange}%)
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="gap-1 font-mono">
+                          <Minus className="h-3 w-3" />
+                          Stabil (0%)
+                        </Badge>
+                      )
+                    ) : null
+                  ) : (
+                    <span className="text-xs text-muted-foreground italic">belum ada pembanding</span>
+                  )}
                 </div>
               </div>
-              <div className="flex items-center gap-2 font-medium">
-                {periodComparison.percentChange !== null ? (
-                  periodComparison.percentChange > 0 ? (
-                    <Badge variant="outline" className="border-emerald-500 text-emerald-600 dark:text-emerald-400 gap-1">
-                      <ArrowUpRight className="h-3 w-3" />
-                      +{periodComparison.percentChange}%
-                    </Badge>
-                  ) : periodComparison.percentChange < 0 ? (
-                    <Badge variant="outline" className="border-amber-500 text-amber-600 dark:text-amber-400 gap-1">
-                      <ArrowDownRight className="h-3 w-3" />
-                      {periodComparison.percentChange}%
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline" className="gap-1">
-                      <Minus className="h-3 w-3" />
-                      Stabil (0%)
-                    </Badge>
-                  )
-                ) : (
-                  <span className="text-xs text-muted-foreground italic">belum ada pembanding</span>
-                )}
+
+              {/* Dua Batang Visual */}
+              <div className="space-y-2 pt-1">
+                {(() => {
+                  const currentHours = Math.round((periodComparison.currentMinutes / 60) * 10) / 10;
+                  const prevHours = Math.round((periodComparison.previousMinutes / 60) * 10) / 10;
+                  const maxMinutes = Math.max(1, periodComparison.currentMinutes, periodComparison.previousMinutes);
+
+                  if (periodComparison.previousMinutes === 0) {
+                    return (
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-medium text-foreground">Periode ini ({periodLabel})</span>
+                          <span className="font-mono font-semibold text-foreground">{currentHours} jam</span>
+                        </div>
+                        <div className="w-full bg-muted/60 h-2.5 rounded-full overflow-hidden">
+                          <div className="bg-primary h-full rounded-full w-full transition-all duration-300" />
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const currentPct = Math.min(100, Math.round((periodComparison.currentMinutes / maxMinutes) * 100));
+                  const prevPct = Math.min(100, Math.round((periodComparison.previousMinutes / maxMinutes) * 100));
+
+                  return (
+                    <div className="space-y-2.5">
+                      {/* Batang 1: Periode Ini */}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-medium text-foreground">Periode ini ({periodLabel})</span>
+                          <span className="font-mono font-semibold text-foreground">{currentHours} jam</span>
+                        </div>
+                        <div className="w-full bg-muted/60 h-2.5 rounded-full overflow-hidden">
+                          <div
+                            style={{ width: `${Math.max(2, currentPct)}%` }}
+                            className="bg-primary h-full rounded-full transition-all duration-300"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Batang 2: Periode Sebelumnya */}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-medium text-muted-foreground">Periode sebelumnya</span>
+                          <span className="font-mono text-muted-foreground">{prevHours} jam</span>
+                        </div>
+                        <div className="w-full bg-muted/60 h-2.5 rounded-full overflow-hidden">
+                          <div
+                            style={{ width: `${Math.max(2, prevPct)}%` }}
+                            className="bg-muted-foreground/45 h-full rounded-full transition-all duration-300"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </CardContent>
           </Card>
@@ -260,6 +326,7 @@ export function StudyAnalyticsClient({ initialData }: StudyAnalyticsClientProps)
         open={isPreferenceOpen}
         onOpenChange={setIsPreferenceOpen}
         onSaved={handlePreferencesUpdated}
+        suggestedWeeklyTargetMin={data.suggestedWeeklyTargetMin}
       />
     </div>
   );

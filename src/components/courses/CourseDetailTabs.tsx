@@ -8,7 +8,14 @@ import {
   canManageMaterial,
   canManageTopic,
 } from "@/lib/auth/rbac";
-import { deleteTopicAction, reorderTopicsAction } from "@/actions/courses";
+import { useRouter } from "next/navigation";
+import {
+  archiveCourseAction,
+  unarchiveCourseAction,
+  updateCourseVisibilityAction,
+  deleteTopicAction,
+  reorderTopicsAction,
+} from "@/actions/courses";
 import { deleteMaterialAction } from "@/actions/materials";
 import { TopicDialog } from "./TopicDialog";
 import { UploadMaterialDialog } from "@/components/materials/UploadMaterialDialog";
@@ -32,6 +39,10 @@ import {
   Plus,
   BookOpen,
   CheckSquare,
+  Archive,
+  RotateCcw,
+  Lock,
+  Users,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDateIndo } from "@/lib/date";
@@ -72,6 +83,10 @@ interface CourseDetailTabsProps {
     code: string | null;
     description: string | null;
     lecturer: string | null;
+    kind?: "REGULAR" | "EXTRA";
+    visibility?: "CLASS" | "PRIVATE";
+    ownerId?: string | null;
+    archivedAt?: Date | string | null;
   };
   topics: TopicItem[];
   materials: MaterialItem[];
@@ -88,6 +103,7 @@ export function CourseDetailTabs({
   members,
   session,
 }: CourseDetailTabsProps) {
+  const router = useRouter();
   const [expandedTopics, setExpandedTopics] = React.useState<Record<string, boolean>>(() => {
     // Default: buka semua topik
     const initial: Record<string, boolean> = { general: true };
@@ -107,8 +123,55 @@ export function CourseDetailTabs({
   const [isReordering, setIsReordering] = React.useState(false);
   const [editingMaterial, setEditingMaterial] = React.useState<MaterialItem | null>(null);
 
-  const canUploadMat = canUploadMaterial(session, course.id);
-  const canManageTopics = canManageTopic(session, course.id);
+  const isExtra = course.kind === "EXTRA";
+  const isOwner = session?.user?.id === course.ownerId;
+  const isArchived = Boolean(course.archivedAt);
+  const isPublic = course.visibility === "CLASS";
+  const canUploadMat = isExtra ? isOwner : canUploadMaterial(session, course);
+  const canManageTopics = isExtra ? isOwner : canManageTopic(session, course);
+  const canArchive = isExtra && (isOwner || session?.effectiveRole === "ADMIN");
+
+  const handleArchiveCourse = async () => {
+    if (
+      !confirm(
+        `Arsipkan topik mandiri "${course.name}"? Topik ini akan dipindahkan ke tab Arsip dan disembunyikan dari katalog aktif.`
+      )
+    ) {
+      return;
+    }
+    try {
+      await archiveCourseAction(course.id);
+      toast.success("Topik mandiri berhasil diarsipkan.");
+      router.push("/home/materials");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Gagal mengarsipkan topik.");
+    }
+  };
+
+  const handleUnarchiveCourse = async () => {
+    try {
+      await unarchiveCourseAction(course.id);
+      toast.success("Topik mandiri berhasil dipulihkan.");
+      router.refresh();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Gagal memulihkan topik.");
+    }
+  };
+
+  const handleToggleVisibility = async () => {
+    const nextVisibility = isPublic ? "PRIVATE" : "CLASS";
+    try {
+      await updateCourseVisibilityAction(course.id, nextVisibility);
+      toast.success(
+        nextVisibility === "CLASS"
+          ? "Topik sekarang dibagikan ke seluruh Kelas 1-B."
+          : "Topik sekarang bersifat pribadi (hanya Anda)."
+      );
+      router.refresh();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Gagal mengubah visibilitas.");
+    }
+  };
 
   const toggleTopic = (id: string) => {
     setExpandedTopics((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -179,49 +242,104 @@ export function CourseDetailTabs({
     <div className="space-y-6">
       <Tabs defaultValue="materials" className="space-y-4">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-b pb-3">
-          <TabsList className="h-8 p-0.5 bg-muted self-start">
-            <TabsTrigger value="materials" className="text-xs h-7 px-3 gap-1.5">
-              <BookOpen className="h-3.5 w-3.5" />
-              Materi & Silabus ({materials.length})
-            </TabsTrigger>
-            <TabsTrigger value="tasks" className="text-xs h-7 px-3 gap-1.5">
-              <CheckSquare className="h-3.5 w-3.5" />
-              Tugas Mata Kuliah ({tasks.length})
-            </TabsTrigger>
-          </TabsList>
-
-          {(canManageTopics || canUploadMat) && (
-            <div className="flex items-center gap-2">
-              {canManageTopics && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setSelectedTopicForEdit(null);
-                    setTopicDialogOpen(true);
-                  }}
-                  className="h-8 text-xs gap-1.5"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Tambah Sub-Topik
-                </Button>
-              )}
-
-              {canUploadMat && (
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    setSelectedTopicForUpload(undefined);
-                    setUploadDialogOpen(true);
-                  }}
-                  className="h-8 text-xs gap-1.5 font-medium"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Unggah Materi
-                </Button>
-              )}
+          {isExtra ? (
+            <div className="flex items-center gap-2 self-start py-0.5">
+              <Badge variant="outline" className="text-xs py-1 px-3 gap-1.5 font-medium bg-muted/40">
+                <BookOpen className="h-3.5 w-3.5 text-indigo-600" />
+                Materi & Rangkuman ({materials.length})
+              </Badge>
             </div>
+          ) : (
+            <TabsList className="h-8 p-0.5 bg-muted self-start">
+              <TabsTrigger value="materials" className="text-xs h-7 px-3 gap-1.5">
+                <BookOpen className="h-3.5 w-3.5" />
+                Materi & Silabus ({materials.length})
+              </TabsTrigger>
+              <TabsTrigger value="tasks" className="text-xs h-7 px-3 gap-1.5">
+                <CheckSquare className="h-3.5 w-3.5" />
+                Tugas Mata Kuliah ({tasks.length})
+              </TabsTrigger>
+            </TabsList>
           )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            {isExtra && isOwner && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleToggleVisibility}
+                className="h-8 text-xs gap-1.5 cursor-pointer"
+                title="Ubah visibilitas topik ini"
+              >
+                {isPublic ? (
+                  <>
+                    <Lock className="h-3.5 w-3.5 text-amber-600" />
+                    Jadikan Pribadi
+                  </>
+                ) : (
+                  <>
+                    <Users className="h-3.5 w-3.5 text-blue-600" />
+                    Bagikan ke Kelas
+                  </>
+                )}
+              </Button>
+            )}
+
+            {isExtra && isArchived && canArchive && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleUnarchiveCourse}
+                className="h-8 text-xs gap-1.5 text-primary border-primary/30 hover:bg-primary/5 font-medium cursor-pointer"
+                title="Pulihkan topik ini ke daftar aktif"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Pulihkan Topik
+              </Button>
+            )}
+
+            {canArchive && !isArchived && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleArchiveCourse}
+                className="h-8 text-xs gap-1.5 text-muted-foreground hover:text-amber-600 border-dashed cursor-pointer"
+                title="Arsipkan topik belajar ini"
+              >
+                <Archive className="h-3.5 w-3.5" />
+                Arsipkan Topik
+              </Button>
+            )}
+
+            {canManageTopics && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setSelectedTopicForEdit(null);
+                  setTopicDialogOpen(true);
+                }}
+                className="h-8 text-xs gap-1.5"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Tambah Sub-Topik
+              </Button>
+            )}
+
+            {canUploadMat && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  setSelectedTopicForUpload(undefined);
+                  setUploadDialogOpen(true);
+                }}
+                className="h-8 text-xs gap-1.5 font-medium"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {isExtra ? "Tambah Materi / Link" : "Unggah Materi"}
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* TAB MATERI */}
@@ -337,7 +455,7 @@ export function CourseDetailTabs({
                             <MaterialCard
                               key={m.id}
                               material={m}
-                              canManage={canManageMaterial(m, session)}
+                              canManage={canManageMaterial({ ...m, course }, session)}
                               onEdit={(mat) => setEditingMaterial(mat)}
                               onDelete={handleDeleteMaterial}
                               formatFileSize={formatFileSize}
@@ -382,7 +500,7 @@ export function CourseDetailTabs({
                         <MaterialCard
                           key={m.id}
                           material={m}
-                          canManage={canManageMaterial(m, session)}
+                          canManage={canManageMaterial({ ...m, course }, session)}
                           onEdit={(mat) => setEditingMaterial(mat)}
                           onDelete={handleDeleteMaterial}
                           formatFileSize={formatFileSize}
@@ -396,31 +514,33 @@ export function CourseDetailTabs({
           )}
         </TabsContent>
 
-        {/* TAB TUGAS */}
-        <TabsContent value="tasks" className="space-y-4 m-0">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-semibold text-muted-foreground">
-              Daftar Tugas Mata Kuliah {course.name}
-            </h3>
-            {canCreateTask(session) && (
-              <Button
-                size="sm"
-                onClick={() => setCreateTaskOpen(true)}
-                className="h-8 text-xs gap-1.5 font-medium"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Buat Tugas Matkul Ini
-              </Button>
-            )}
-          </div>
+        {/* TAB TUGAS (Hanya untuk mata kuliah reguler) */}
+        {!isExtra && (
+          <TabsContent value="tasks" className="space-y-4 m-0">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-semibold text-muted-foreground">
+                Daftar Tugas Mata Kuliah {course.name}
+              </h3>
+              {canCreateTask(session) && (
+                <Button
+                  size="sm"
+                  onClick={() => setCreateTaskOpen(true)}
+                  className="h-8 text-xs gap-1.5 font-medium"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Buat Tugas Matkul Ini
+                </Button>
+              )}
+            </div>
 
-          <TaskList
-            tasks={tasks}
-            courses={[{ id: course.id, name: course.name, code: course.code }]}
-            members={members}
-            session={session}
-          />
-        </TabsContent>
+            <TaskList
+              tasks={tasks}
+              courses={[{ id: course.id, name: course.name, code: course.code }]}
+              members={members}
+              session={session}
+            />
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* Dialogs */}
@@ -439,6 +559,7 @@ export function CourseDetailTabs({
           courses={[{ id: course.id, name: course.name, topics }]}
           defaultCourseId={course.id}
           defaultTopicId={selectedTopicForUpload}
+          allowFileUpload={!isExtra}
           open={uploadDialogOpen}
           onOpenChange={setUploadDialogOpen}
         />

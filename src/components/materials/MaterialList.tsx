@@ -47,7 +47,14 @@ export interface MaterialItem {
   visibility: MaterialVisibility;
   uploadedById: string;
   createdAt: Date | string;
-  course: { id: string; name: string; code: string | null; lecturer: string | null };
+  course: {
+    id: string;
+    name: string;
+    code: string | null;
+    lecturer: string | null;
+    kind?: "REGULAR" | "EXTRA" | null;
+    ownerId?: string | null;
+  };
   topic: { id: string; title: string } | null;
   uploadedBy: { id: string; name: string | null; email: string };
   downloadUrl?: string;

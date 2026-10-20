@@ -21,6 +21,7 @@ export interface AnalyticsKpis {
     previousMinutes: number;
     percentChange: number | null;
   };
+  suggestedWeeklyTargetMin?: number | null;
 }
 
 export interface TrendChartPoint {
@@ -43,4 +44,5 @@ export interface StudyAnalyticsDashboardData {
     totalTasksCount: number;
   };
   preferences: StudyPreferenceDto;
+  suggestedWeeklyTargetMin: number | null;
 }

@@ -20,16 +20,39 @@ export function canDeleteCourse(session: CurrentUserSession): boolean {
 
 export function canManageCourse(
   session: CurrentUserSession,
-  courseId?: string | null
+  course?: { id?: string; kind?: "REGULAR" | "EXTRA" | null; ownerId?: string | null } | string | null
 ): boolean {
   if (!session.user) return false;
 
+  // EXTRA hanya pemilik yang boleh mengelola
+  if (course && typeof course === "object" && course.kind === "EXTRA") {
+    return session.user.id === course.ownerId;
+  }
+
+  // Admin memiliki hak penuh untuk REGULAR
   if (session.effectiveRole === "ADMIN") return true;
+
+  // PJ dapat mengelola mata kuliah REGULAR yang ditugaskan
   if (session.effectiveRole === "PJ") {
+    const courseId = typeof course === "string" ? course : course?.id;
     if (!courseId) return true;
     return session.assignedCourseIds?.includes(courseId) ?? false;
   }
 
+  return false;
+}
+
+export function canArchiveCourse(
+  session: CurrentUserSession,
+  course?: { id?: string; kind?: "REGULAR" | "EXTRA" | null; ownerId?: string | null } | null
+): boolean {
+  if (!session.user) return false;
+  // Admin boleh mengarsipkan semua mata kuliah/topik
+  if (session.effectiveRole === "ADMIN") return true;
+  // Untuk EXTRA, pemilik boleh mengarsipkan
+  if (course && course.kind === "EXTRA") {
+    return session.user.id === course.ownerId;
+  }
   return false;
 }
 
@@ -74,10 +97,12 @@ export function canDeleteTask(
 
 export function canUploadMaterial(
   session: CurrentUserSession,
-  courseId?: string | null
+  course?: { id?: string; kind?: "REGULAR" | "EXTRA" | null; ownerId?: string | null } | string | null
 ): boolean {
-  void courseId;
   if (!session.user) return false;
+  if (course && typeof course === "object" && course.kind === "EXTRA") {
+    return session.user.id === course.ownerId;
+  }
   return (
     session.effectiveRole === "ADMIN" ||
     session.effectiveRole === "PJ" ||
@@ -86,11 +111,13 @@ export function canUploadMaterial(
 }
 
 export function canManageMaterial(
-  material: { courseId?: string | null; uploadedById?: string },
+  material: { courseId?: string | null; uploadedById?: string; course?: { kind?: "REGULAR" | "EXTRA" | null; ownerId?: string | null } | null },
   session: CurrentUserSession
 ): boolean {
-  void material;
   if (!session.user) return false;
+  if (material.course && material.course.kind === "EXTRA") {
+    return session.user.id === material.course.ownerId;
+  }
   return (
     session.effectiveRole === "ADMIN" ||
     session.effectiveRole === "PJ" ||
@@ -100,10 +127,12 @@ export function canManageMaterial(
 
 export function canManageTopic(
   session: CurrentUserSession,
-  courseId?: string | null
+  course?: { id?: string; kind?: "REGULAR" | "EXTRA" | null; ownerId?: string | null } | string | null
 ): boolean {
-  void courseId;
   if (!session.user) return false;
+  if (course && typeof course === "object" && course.kind === "EXTRA") {
+    return session.user.id === course.ownerId;
+  }
   return (
     session.effectiveRole === "ADMIN" ||
     session.effectiveRole === "PJ" ||
