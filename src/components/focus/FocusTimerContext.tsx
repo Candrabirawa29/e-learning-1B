@@ -29,8 +29,11 @@ import {
   startRepeatingAlarm,
   stopRepeatingAlarm,
   playAlarmSample,
-} from "@/lib/focus/sounds";
-import { resolveFocusSessionProgress } from "@/lib/focus/session-logic";
+import {
+  resolveFocusSessionProgress,
+  getFocusClock,
+  FocusClockPhase,
+} from "@/lib/focus/session-logic";
 import { toast } from "sonner";
 
 export type BreakType = "SHORT_BREAK" | "LONG_BREAK" | "NONE";
@@ -70,6 +73,10 @@ interface FocusTimerContextType {
     taskId?: string | null;
     mode?: FocusMode;
   }) => Promise<void>;
+
+  // Action states & version
+  isActionPending: boolean;
+  clockPhase: FocusClockPhase;
 
   // Computed live times (updated via wall-clock timestamp delta)
   elapsedSec: number;
@@ -168,6 +175,33 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
   const [preferences, setPreferences] = React.useState<StudyPreferenceDto | null>(null);
   const [completedCycles, setCompletedCycles] = React.useState<number>(0);
   const [isLoading, setIsLoading] = React.useState<boolean>(true);
+  const [isActionPending, setIsActionPending] = React.useState<boolean>(false);
+
+  // State version tracking: Klien hanya menerima snapshot dengan version >= yang dimilikinya
+  const sessionVersionRef = React.useRef<number>(0);
+
+  const reconcileSession = React.useCallback(
+    (incoming: ActiveFocusSessionDto | null, incomingVersion?: number) => {
+      if (!incoming) {
+        sessionVersionRef.current = 0;
+        setActiveSession(null);
+        return;
+      }
+      const version = incomingVersion ?? incoming.version ?? 1;
+      if (version >= sessionVersionRef.current) {
+        sessionVersionRef.current = version;
+        setActiveSession({
+          ...incoming,
+          version,
+        });
+      } else {
+        console.warn(
+          `[FocusTimer] Menolak snapshot basi (v${version} < v${sessionVersionRef.current})`
+        );
+      }
+    },
+    []
+  );
 
   // Selected context (Course / Task / Mode)
   const [selectedCourseId, setSelectedCourseId] = React.useState<string | null>(null);
@@ -247,7 +281,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
           getTodayCompletedCyclesAction(),
         ]);
         if (mounted) {
-          setActiveSession(active);
+          reconcileSession(active);
           setPreferences(pref);
           setCompletedCycles(cyclesToday);
 
@@ -364,7 +398,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
     [notificationsEnabled]
   );
 
-  // Accurate Wall-clock calculations via pure function
+  // Accurate Wall-clock calculations via pure getFocusClock
   const isBreakActive = breakState.type !== "NONE" && breakState.status !== "COMPLETED";
 
   let elapsedSec = 0;
@@ -374,6 +408,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
   let isOverdue = false;
   let isTargetReached = false;
   let progressPercent = 0;
+  let clockPhase: FocusClockPhase = "PAUSED";
 
   if (isBreakActive) {
     let currentBreakSec = breakState.accumulatedSec;
@@ -387,7 +422,15 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
       breakState.plannedSec > 0
         ? Math.min(100, Math.round((currentBreakSec / breakState.plannedSec) * 100))
         : 100;
+    clockPhase = breakState.status === "RUNNING" ? "RUNNING" : "PAUSED";
   } else if (activeSession) {
+    const clock = getFocusClock(activeSession, nowMs > 0 ? nowMs : Date.now());
+    clockPhase = clock.phase;
+    focusSec = clock.focusSec;
+    remainingSec = clock.remainingSec;
+    isTargetReached = clock.phase === "TARGET_REACHED";
+
+    // Hitung overdueSec dan auto-completion 10 menit
     const evaluation = resolveFocusSessionProgress(
       {
         mode: activeSession.mode,
@@ -398,19 +441,12 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
         lastSeenAt: activeSession.lastSeenAt,
         status: activeSession.status,
       },
-      nowMs > 0
-        ? nowMs
-        : activeSession.lastResumedAt
-          ? new Date(activeSession.lastResumedAt).getTime()
-          : new Date(activeSession.startedAt).getTime()
+      nowMs > 0 ? nowMs : Date.now()
     );
 
     elapsedSec = evaluation.elapsedSec;
-    focusSec = evaluation.focusSec;
-    remainingSec = evaluation.remainingSec;
     overdueSec = evaluation.overdueSec;
     isOverdue = evaluation.overdueSec > 0;
-    isTargetReached = evaluation.isTargetReached;
 
     if (activeSession.mode === FocusMode.STOPWATCH) {
       remainingSec = 0;
@@ -424,17 +460,41 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
 
     // Lazy client status sync if auto-completed (>10m overdue)
     if (evaluation.isAutoCompleted && activeSession.status === FocusSessionStatus.RUNNING) {
+      const autoCompletedVersion = sessionVersionRef.current + 1;
+      sessionVersionRef.current = autoCompletedVersion;
       setActiveSession((prev) =>
         prev
           ? {
               ...prev,
               status: FocusSessionStatus.COMPLETED,
               accumulatedSec: activeSession.plannedSec,
+              version: autoCompletedVersion,
             }
           : null
       );
     }
   }
+
+  // Masukan tidak valid: muat ulang satu kali dari server dan catat console.error
+  const invalidReloadTriggeredRef = React.useRef(false);
+  React.useEffect(() => {
+    if (clockPhase === "INVALID" && activeSession) {
+      console.error(
+        "[FocusTimer] Masukan timer tidak valid (RUNNING tanpa lastResumedAt atau NaN):",
+        activeSession
+      );
+      if (!invalidReloadTriggeredRef.current) {
+        invalidReloadTriggeredRef.current = true;
+        refreshActiveSession().finally(() => {
+          setTimeout(() => {
+            invalidReloadTriggeredRef.current = false;
+          }, 3000);
+        });
+      }
+    } else {
+      invalidReloadTriggeredRef.current = false;
+    }
+  }, [clockPhase, activeSession]);
 
   // Alarm sound & Flashing Tab Title
   const stopAlarm = React.useCallback(() => {
@@ -781,6 +841,8 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
     courseId?: string | null;
     taskId?: string | null;
   }): Promise<boolean> => {
+    if (isActionPending) return false;
+    setIsActionPending(true);
     try {
       stopAlarm();
       if (soundEnabled) soundEffects.playClick();
@@ -814,7 +876,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
       });
 
       if (res.success && res.session) {
-        setActiveSession(res.session);
+        reconcileSession(res.session, res.version);
         setSummarySession(null);
         alarmTriggeredSessionIdRef.current = null;
         toast.success("Sesi fokus berhasil dimulai!");
@@ -824,6 +886,8 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Gagal memulai sesi fokus");
       return false;
+    } finally {
+      setIsActionPending(false);
     }
   };
 
@@ -833,64 +897,96 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
 
   // Action: Pause Focus
   const pause = async () => {
-    if (!activeSession) return;
+    if (!activeSession || isActionPending) return;
+    setIsActionPending(true);
     try {
       stopAlarm();
       if (soundEnabled) soundEffects.playClick();
-      const res = await pauseFocusSessionAction(activeSession.id);
+
+      // Optimistic update: version naik 1, freeze durasi berjalan di getFocusClock
+      const optimisticVersion = sessionVersionRef.current + 1;
+      sessionVersionRef.current = optimisticVersion;
+      const currentClock = getFocusClock(activeSession, Date.now());
+
       setActiveSession((prev) =>
         prev
           ? {
               ...prev,
-              accumulatedSec: res.accumulatedSec,
+              accumulatedSec: currentClock.focusSec,
               lastResumedAt: null,
               status: FocusSessionStatus.PAUSED,
+              version: optimisticVersion,
             }
           : null
       );
+
+      const res = await pauseFocusSessionAction(activeSession.id);
+      if (res.success && res.session) {
+        reconcileSession(res.session, res.version);
+      }
       toast.info("Sesi fokus dijeda");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Gagal menjeda sesi");
+      await refreshActiveSession();
+    } finally {
+      setIsActionPending(false);
     }
   };
 
   // Action: Resume Focus
   const resume = async () => {
-    if (!activeSession) return;
+    if (!activeSession || isActionPending) return;
+    setIsActionPending(true);
     try {
       stopAlarm();
       if (soundEnabled) soundEffects.playClick();
-      await resumeFocusSessionAction(activeSession.id);
+
+      // Optimistic update: version naik 1, set lastResumedAt ISO dengan 'Z'
+      const optimisticVersion = sessionVersionRef.current + 1;
+      sessionVersionRef.current = optimisticVersion;
       const nowIso = new Date().toISOString();
+
       setActiveSession((prev) =>
         prev
           ? {
               ...prev,
               lastResumedAt: nowIso,
               status: FocusSessionStatus.RUNNING,
+              version: optimisticVersion,
             }
           : null
       );
+
+      const res = await resumeFocusSessionAction(activeSession.id);
+      if (res.success && res.session) {
+        reconcileSession(res.session, res.version);
+      }
       toast.success("Sesi fokus dilanjutkan");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Gagal melanjutkan sesi");
+      await refreshActiveSession();
+    } finally {
+      setIsActionPending(false);
     }
   };
 
   // Action: Extend Focus (+5 menit)
   const extendFocus = async () => {
-    if (!activeSession) return;
+    if (!activeSession || isActionPending) return;
+    setIsActionPending(true);
     try {
       stopAlarm();
       if (soundEnabled) soundEffects.playClick();
       const res = await extendFocusSessionAction(activeSession.id);
       if (res.success && res.session) {
-        setActiveSession(res.session);
+        reconcileSession(res.session, res.version);
         alarmTriggeredSessionIdRef.current = null;
         toast.success("Sesi fokus diperpanjang +5 menit!");
       }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Gagal memperpanjang sesi");
+    } finally {
+      setIsActionPending(false);
     }
   };
 
@@ -898,13 +994,14 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
   const endSession = async (
     note?: string
   ): Promise<{ action: "SAVED" | "DISCARDED"; status?: FocusSessionStatus | null }> => {
-    if (!activeSession) return { action: "DISCARDED" };
+    if (!activeSession || isActionPending) return { action: "DISCARDED" };
+    setIsActionPending(true);
     try {
       stopAlarm();
       const res = await endFocusSessionAction(activeSession.id, note);
 
       if (res.action === "DISCARDED") {
-        setActiveSession(null);
+        reconcileSession(null);
         alarmTriggeredSessionIdRef.current = null;
         toast.info("Terlalu singkat, tidak dicatat");
         return { action: "DISCARDED" };
@@ -912,7 +1009,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
 
       // Sesi tersimpan
       if (soundEnabled) soundEffects.playSessionComplete(preferences?.soundVolume ?? 80);
-      setActiveSession(null);
+      reconcileSession(null);
       alarmTriggeredSessionIdRef.current = null;
 
       // Update summary session untuk layar ringkasan
@@ -950,21 +1047,26 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Gagal mengakhiri sesi");
       return { action: "DISCARDED" };
+    } finally {
+      setIsActionPending(false);
     }
   };
 
   // Action: Discard Session ("Buang sesi")
   const discardSession = async () => {
-    if (!activeSession) return;
+    if (!activeSession || isActionPending) return;
+    setIsActionPending(true);
     try {
       stopAlarm();
       await discardFocusSessionAction(activeSession.id);
-      setActiveSession(null);
+      reconcileSession(null);
       setSummarySession(null);
       alarmTriggeredSessionIdRef.current = null;
       toast.info("Sesi telah dibuang dan tidak dicatat");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Gagal membuang sesi");
+    } finally {
+      setIsActionPending(false);
     }
   };
 
@@ -1037,7 +1139,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
   const refreshActiveSession = async () => {
     try {
       const active = await getActiveFocusSessionAction();
-      setActiveSession(active);
+      reconcileSession(active);
     } catch {
       // ignore
     }
@@ -1060,6 +1162,8 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
         preferences,
         completedCycles,
         isLoading,
+        isActionPending,
+        clockPhase,
 
         selectedCourseId,
         selectedTaskId,
@@ -1131,4 +1235,8 @@ export function useFocusTimer() {
     throw new Error("useFocusTimer harus digunakan di dalam FocusTimerProvider");
   }
   return context;
+}
+
+export function useOptionalFocusTimer() {
+  return React.useContext(FocusTimerContext);
 }

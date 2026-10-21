@@ -26,6 +26,7 @@ export interface ActiveFocusSessionDto {
   taskId: string | null;
   course?: { id: string; name: string; code: string | null } | null;
   task?: { id: string; title: string } | null;
+  version?: number;
 }
 
 export interface StudyPreferenceDto {

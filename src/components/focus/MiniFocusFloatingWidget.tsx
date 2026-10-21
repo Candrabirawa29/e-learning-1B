@@ -26,10 +26,13 @@ export function MiniFocusFloatingWidget() {
     isBreakActive,
     breakState,
     elapsedSec,
+    focusSec,
     remainingSec,
     overdueSec,
     isOverdue,
     isTargetReached,
+    isActionPending,
+    clockPhase,
     isAlarmActive,
     stopAlarm,
     extendFocus,
@@ -69,11 +72,17 @@ export function MiniFocusFloatingWidget() {
     ? activeSession?.status === "RUNNING"
     : breakState.status === "RUNNING";
 
+  const isTargetCompletedFocus = isFocus && activeSession?.mode === FocusMode.FOCUS && isTargetReached;
+
   const displayTime = isFocus
-    ? activeSession?.mode === FocusMode.STOPWATCH
-      ? formatSecToMMSS(elapsedSec)
+    ? clockPhase === "INVALID"
+      ? "Menyinkronkan..."
+      : activeSession?.mode === FocusMode.STOPWATCH
+      ? formatSecToMMSS(focusSec)
       : isOverdue
       ? formatOverdueText(overdueSec)
+      : remainingSec === 0 && !isTargetCompletedFocus
+      ? "Menyinkronkan..."
       : formatSecToMMSS(remainingSec)
     : formatSecToMMSS(remainingSec);
 
@@ -183,6 +192,7 @@ export function MiniFocusFloatingWidget() {
                 size="sm"
                 variant="secondary"
                 onClick={extendFocus}
+                disabled={isActionPending}
                 className="h-7 px-2 text-[11px] font-bold rounded-full bg-white text-emerald-800 hover:bg-white/90 shadow-xs gap-1"
                 title="Lanjut fokus +5 menit"
               >
@@ -195,6 +205,7 @@ export function MiniFocusFloatingWidget() {
               size="icon"
               variant="ghost"
               onClick={togglePlayPause}
+              disabled={isActionPending}
               className={`h-7 w-7 rounded-full ${
                 isAlertMode
                   ? "text-white hover:bg-white/20"

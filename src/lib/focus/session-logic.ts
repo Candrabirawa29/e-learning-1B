@@ -32,15 +32,137 @@ export interface ResolvedFocusSession {
   formattedOverdue: string | null;
 }
 
+export type FocusClockPhase = "RUNNING" | "PAUSED" | "TARGET_REACHED" | "COMPLETED" | "INVALID";
+
+export interface FocusClockResult {
+  focusSec: number;
+  remainingSec: number;
+  phase: FocusClockPhase;
+}
+
+export interface FocusClockSessionInput {
+  mode?: "FOCUS" | "STOPWATCH" | null;
+  status: "RUNNING" | "PAUSED" | "COMPLETED" | "STOPPED_EARLY" | "CANCELLED" | string;
+  accumulatedSec: number;
+  plannedSec?: number | null;
+  lastResumedAt?: Date | string | number | null;
+  startedAt?: Date | string | number | null;
+}
+
 /**
- * Konversi waktu ke milidetik secara aman.
+ * Konversi waktu ke milidetik secara aman (menjamin UTC/Z jika format ISO).
  */
-function toEpochMs(val: Date | string | number | null | undefined): number | null {
+export function toEpochMs(val: Date | string | number | null | undefined): number | null {
   if (val === null || val === undefined) return null;
-  if (typeof val === "number") return val;
-  if (val instanceof Date) return val.getTime();
-  const parsed = new Date(val).getTime();
-  return isNaN(parsed) ? null : parsed;
+  if (typeof val === "number") return isNaN(val) ? null : val;
+  if (val instanceof Date) {
+    const t = val.getTime();
+    return isNaN(t) ? null : t;
+  }
+  if (typeof val === "string") {
+    let clean = val.trim();
+    if (!clean) return null;
+    // Jika format ISO tanpa penanda zona waktu (misal "2026-10-21T11:00:00"), tambahkan "Z"
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(clean)) {
+      clean += "Z";
+    }
+    const parsed = new Date(clean).getTime();
+    return isNaN(parsed) ? null : parsed;
+  }
+  return null;
+}
+
+/**
+ * Satu fungsi murni getFocusClock(session, nowMs) -> { focusSec, remainingSec, phase }
+ *
+ * Aturan:
+ * 1. focusSec = accumulatedSec + (status RUNNING ? (nowMs - lastResumedAtMs)/1000 : 0), dibatasi plannedSec untuk mode FOCUS.
+ * 2. Mode STOPWATCH tidak dibatasi plannedSec, remainingSec selalu 0.
+ * 3. Status PAUSED berarti tidak berjalan: waktu tidak bertambah.
+ * 4. Phase:
+ *    - "INVALID": jika masukan tidak valid (RUNNING tanpa lastResumedAt, NaN, session null).
+ *    - "PAUSED": jika status PAUSED.
+ *    - "TARGET_REACHED": jika mode FOCUS dan focusSec >= plannedSec.
+ *    - "RUNNING": jika status RUNNING dan belum mencapai target.
+ *    - "COMPLETED": jika status COMPLETED.
+ */
+export function getFocusClock(
+  session: FocusClockSessionInput | null | undefined,
+  now: Date | string | number = Date.now()
+): FocusClockResult {
+  if (!session) {
+    return { focusSec: 0, remainingSec: 1500, phase: "INVALID" };
+  }
+
+  const nowMs = toEpochMs(now);
+  if (nowMs === null || isNaN(nowMs)) {
+    return { focusSec: 0, remainingSec: 1500, phase: "INVALID" };
+  }
+
+  const rawAccumulated = Number(session.accumulatedSec);
+  const rawPlanned =
+    session.plannedSec !== undefined && session.plannedSec !== null
+      ? Number(session.plannedSec)
+      : 1500;
+
+  if (isNaN(rawAccumulated) || rawAccumulated < 0 || isNaN(rawPlanned) || rawPlanned < 0) {
+    const safePlanned = isNaN(rawPlanned) || rawPlanned <= 0 ? 1500 : rawPlanned;
+    return { focusSec: 0, remainingSec: safePlanned, phase: "INVALID" };
+  }
+
+  const accumulatedSec = rawAccumulated;
+  const plannedSec = rawPlanned;
+
+  const isFocusMode = (session.mode ?? "FOCUS") !== "STOPWATCH";
+  const isRunning = session.status === "RUNNING";
+  const isPaused = session.status === "PAUSED";
+  const isCompleted = session.status === "COMPLETED";
+
+  // Masukan tidak valid jika RUNNING tanpa lastResumedAt yang valid
+  const lastResumedAtMs = toEpochMs(session.lastResumedAt);
+  if (isRunning && lastResumedAtMs === null) {
+    const safeRemaining = isFocusMode ? Math.max(1, plannedSec - accumulatedSec) : 0;
+    return {
+      focusSec: Math.min(accumulatedSec, plannedSec),
+      remainingSec: safeRemaining,
+      phase: "INVALID",
+    };
+  }
+
+  let additionalSec = 0;
+  if (isRunning && lastResumedAtMs !== null) {
+    additionalSec = Math.max(0, Math.floor((nowMs - lastResumedAtMs) / 1000));
+  }
+
+  let focusSec = accumulatedSec + additionalSec;
+  let remainingSec = 0;
+
+  if (isFocusMode) {
+    focusSec = Math.min(focusSec, plannedSec);
+    remainingSec = Math.max(0, plannedSec - focusSec);
+  } else {
+    // Mode STOPWATCH: tidak dibatasi plannedSec, countdown = 0
+    remainingSec = 0;
+  }
+
+  let phase: FocusClockPhase;
+  if (isPaused) {
+    phase = "PAUSED";
+  } else if (isFocusMode && focusSec >= plannedSec) {
+    phase = "TARGET_REACHED";
+  } else if (isRunning) {
+    phase = "RUNNING";
+  } else if (isCompleted) {
+    phase = "COMPLETED";
+  } else {
+    phase = "PAUSED";
+  }
+
+  return {
+    focusSec,
+    remainingSec,
+    phase,
+  };
 }
 
 /**

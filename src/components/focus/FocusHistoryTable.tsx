@@ -55,6 +55,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { getFocusClock } from "@/lib/focus/session-logic";
+import { useOptionalFocusTimer } from "./FocusTimerContext";
 
 function formatDuration(sec: number): string {
   if (sec <= 0) return "0 detik";
@@ -89,20 +91,6 @@ interface FocusHistoryItem {
   task?: { id: string; title: string } | null;
 }
 
-function getItemDurationSec(item: FocusHistoryItem, nowMs: number): number {
-  if (item.status === FocusSessionStatus.RUNNING && nowMs > 0) {
-    const resumeEpoch = item.lastResumedAt
-      ? new Date(item.lastResumedAt).getTime()
-      : new Date(item.startedAt).getTime();
-    const additionalSec = Math.max(0, Math.floor((nowMs - resumeEpoch) / 1000));
-    const totalSec = item.accumulatedSec + additionalSec;
-    if (item.mode === FocusMode.FOCUS && item.plannedSec > 0) {
-      return Math.min(totalSec, item.plannedSec);
-    }
-    return totalSec;
-  }
-  return item.accumulatedSec;
-}
 
 interface CourseOption {
   id: string;
@@ -122,6 +110,9 @@ interface FocusHistoryTableProps {
 }
 
 export function FocusHistoryTable({ courses, tasks = [] }: FocusHistoryTableProps) {
+  const optionalTimer = useOptionalFocusTimer();
+  const activeSession = optionalTimer?.activeSession ?? null;
+
   const [items, setItems] = React.useState<FocusHistoryItem[]>([]);
   const [page, setPage] = React.useState<number>(1);
   const [totalPages, setTotalPages] = React.useState<number>(1);
@@ -134,7 +125,9 @@ export function FocusHistoryTable({ courses, tasks = [] }: FocusHistoryTableProp
   // Live timer interval ticker for RUNNING rows
   React.useEffect(() => {
     setNowMs(Date.now());
-    const hasRunning = items.some((i) => i.status === FocusSessionStatus.RUNNING);
+    const hasRunning =
+      activeSession?.status === FocusSessionStatus.RUNNING ||
+      items.some((i) => i.status === FocusSessionStatus.RUNNING);
     if (!hasRunning) return;
 
     const timer = setInterval(() => {
@@ -142,7 +135,7 @@ export function FocusHistoryTable({ courses, tasks = [] }: FocusHistoryTableProp
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [items]);
+  }, [items, activeSession?.status]);
 
   // Edit dialog state
   const [editingItem, setEditingItem] = React.useState<FocusHistoryItem | null>(null);
@@ -174,7 +167,7 @@ export function FocusHistoryTable({ courses, tasks = [] }: FocusHistoryTableProp
 
   React.useEffect(() => {
     fetchHistory();
-  }, [fetchHistory]);
+  }, [fetchHistory, activeSession?.id, activeSession?.status]);
 
   const handleOpenEdit = (item: FocusHistoryItem) => {
     setEditingItem(item);
@@ -380,61 +373,67 @@ export function FocusHistoryTable({ courses, tasks = [] }: FocusHistoryTableProp
                 </TableCell>
               </TableRow>
             ) : (
-              items.map((item) => (
-                <TableRow key={item.id} className="text-xs hover:bg-muted/30 transition-colors">
-                  <TableCell className="font-medium">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="truncate max-w-[200px] font-semibold text-foreground">
-                        {item.course?.name || "Tanpa Mata Kuliah"}
-                      </span>
-                      {item.task && (
-                        <span className="text-[11px] text-muted-foreground truncate max-w-[200px]">
-                          Tugas: {item.task.title}
+              items.map((item) => {
+                const isActiveRow = Boolean(activeSession && activeSession.id === item.id);
+                const effectiveSession = isActiveRow ? activeSession! : item;
+                const effectiveStatus = effectiveSession.status as FocusSessionStatus;
+                const clock = getFocusClock(effectiveSession, nowMs > 0 ? nowMs : Date.now());
+
+                return (
+                  <TableRow key={item.id} className="text-xs hover:bg-muted/30 transition-colors">
+                    <TableCell className="font-medium">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="truncate max-w-[200px] font-semibold text-foreground">
+                          {item.course?.name || "Tanpa Mata Kuliah"}
                         </span>
-                      )}
-                    </div>
-                  </TableCell>
+                        {item.task && (
+                          <span className="text-[11px] text-muted-foreground truncate max-w-[200px]">
+                            Tugas: {item.task.title}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
 
-                  <TableCell className="text-muted-foreground">
-                    {formatWib(item.startedAt, "datetime-short")}
-                  </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {formatWib(item.startedAt, "datetime-short")}
+                    </TableCell>
 
-                  <TableCell>
-                    <div className="flex items-center gap-1.5 font-mono">
-                      <span>{formatDuration(getItemDurationSec(item, nowMs))}</span>
-                      {item.status === FocusSessionStatus.RUNNING && (
-                        <span className="relative flex h-2 w-2" title="Sesi sedang berjalan">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                    <TableCell>
+                      <div className="flex items-center gap-1.5 font-mono">
+                        <span>{formatDuration(clock.focusSec)}</span>
+                        {effectiveStatus === FocusSessionStatus.RUNNING && (
+                          <span className="relative flex h-2 w-2" title="Sesi sedang berjalan">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                          </span>
+                        )}
+                        {item.isCorrected && (
+                          <Badge
+                            variant="secondary"
+                            className="text-[9px] px-1 py-0 h-4 bg-muted text-muted-foreground font-sans font-normal"
+                          >
+                            dikoreksi
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
+
+                    <TableCell>{statusBadge(effectiveStatus)}</TableCell>
+
+                    <TableCell>
+                      {item.note ? (
+                        <span className="text-muted-foreground line-clamp-1 italic max-w-[140px]">
+                          &quot;{item.note}&quot;
                         </span>
+                      ) : (
+                        <span className="text-muted-foreground/40 italic">-</span>
                       )}
-                      {item.isCorrected && (
-                        <Badge
-                          variant="secondary"
-                          className="text-[9px] px-1 py-0 h-4 bg-muted text-muted-foreground font-sans font-normal"
-                        >
-                          dikoreksi
-                        </Badge>
-                      )}
-                    </div>
-                  </TableCell>
+                    </TableCell>
 
-                  <TableCell>{statusBadge(item.status)}</TableCell>
-
-                  <TableCell>
-                    {item.note ? (
-                      <span className="text-muted-foreground line-clamp-1 italic max-w-[140px]">
-                        &quot;{item.note}&quot;
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground/40 italic">-</span>
-                    )}
-                  </TableCell>
-
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button
-                        variant="ghost"
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
                         size="icon"
                         onClick={() => handleOpenEdit(item)}
                         className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"

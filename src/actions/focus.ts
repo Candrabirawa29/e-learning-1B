@@ -22,6 +22,59 @@ import {
 import { wibDayKey } from "@/lib/datetime";
 import { wibLocal } from "@/lib/analytics/study-queries";
 
+const sessionVersions = new Map<string, number>();
+
+export function getSessionVersion(sessionId: string): number {
+  return sessionVersions.get(sessionId) ?? 1;
+}
+
+export function bumpSessionVersion(sessionId: string): number {
+  const current = sessionVersions.get(sessionId) ?? 0;
+  const next = current + 1;
+  sessionVersions.set(sessionId, next);
+  return next;
+}
+
+function serializeActiveSession(
+  session: {
+    id: string;
+    clientSessionId: string;
+    mode: FocusMode;
+    plannedSec: number;
+    startedAt: Date;
+    lastResumedAt: Date | null;
+    accumulatedSec: number;
+    lastSeenAt?: Date | null;
+    isCorrected?: boolean;
+    status: FocusSessionStatus;
+    note: string | null;
+    courseId: string | null;
+    taskId: string | null;
+    course?: { id: string; name: string; code: string | null } | null;
+    task?: { id: string; title: string } | null;
+  },
+  version: number
+): ActiveFocusSessionDto {
+  return {
+    id: session.id,
+    clientSessionId: session.clientSessionId,
+    mode: session.mode,
+    plannedSec: session.plannedSec,
+    startedAt: session.startedAt.toISOString(),
+    lastResumedAt: session.lastResumedAt ? session.lastResumedAt.toISOString() : null,
+    accumulatedSec: session.accumulatedSec,
+    lastSeenAt: session.lastSeenAt ? session.lastSeenAt.toISOString() : null,
+    isCorrected: session.isCorrected,
+    status: session.status,
+    note: session.note,
+    courseId: session.courseId,
+    taskId: session.taskId,
+    course: session.course,
+    task: session.task,
+    version,
+  };
+}
+
 /**
  * Helper internal: Menutup otomatis sesi yang terlantar > 4 jam tanpa aktivitas,
  * sesi RUNNING tanpa heartbeat > 10 menit (difinalkan pada lastSeenAt),
@@ -128,23 +181,8 @@ export async function getActiveFocusSessionAction(): Promise<ActiveFocusSessionD
 
   if (!fullSession) return null;
 
-  return {
-    id: fullSession.id,
-    clientSessionId: fullSession.clientSessionId,
-    mode: fullSession.mode,
-    plannedSec: fullSession.plannedSec,
-    startedAt: fullSession.startedAt.toISOString(),
-    lastResumedAt: fullSession.lastResumedAt?.toISOString() || null,
-    accumulatedSec: fullSession.accumulatedSec,
-    lastSeenAt: fullSession.lastSeenAt?.toISOString() || null,
-    isCorrected: fullSession.isCorrected,
-    status: fullSession.status,
-    note: fullSession.note,
-    courseId: fullSession.courseId,
-    taskId: fullSession.taskId,
-    course: fullSession.course,
-    task: fullSession.task,
-  };
+  const version = getSessionVersion(fullSession.id);
+  return serializeActiveSession(fullSession, version);
 }
 
 /**
@@ -209,25 +247,11 @@ export async function startFocusSessionAction(rawInput: z.infer<typeof StartFocu
   });
 
   if (existing) {
+    const version = getSessionVersion(existing.id);
     return {
       success: true,
-      session: {
-        id: existing.id,
-        clientSessionId: existing.clientSessionId,
-        mode: existing.mode,
-        plannedSec: existing.plannedSec,
-        startedAt: existing.startedAt.toISOString(),
-        lastResumedAt: existing.lastResumedAt?.toISOString() || null,
-        accumulatedSec: existing.accumulatedSec,
-        lastSeenAt: existing.lastSeenAt?.toISOString() || null,
-        isCorrected: existing.isCorrected,
-        status: existing.status,
-        note: existing.note,
-        courseId: existing.courseId,
-        taskId: existing.taskId,
-        course: existing.course,
-        task: existing.task,
-      },
+      version,
+      session: serializeActiveSession(existing, version),
     };
   }
 
@@ -279,25 +303,11 @@ export async function startFocusSessionAction(rawInput: z.infer<typeof StartFocu
   revalidatePath("/home/focus");
   revalidatePath("/home/study-analytics");
 
+  const version = bumpSessionVersion(created.id);
   return {
     success: true,
-    session: {
-      id: created.id,
-      clientSessionId: created.clientSessionId,
-      mode: created.mode,
-      plannedSec: created.plannedSec,
-      startedAt: created.startedAt.toISOString(),
-      lastResumedAt: created.lastResumedAt?.toISOString() || null,
-      accumulatedSec: created.accumulatedSec,
-      lastSeenAt: created.lastSeenAt?.toISOString() || null,
-      isCorrected: created.isCorrected,
-      status: created.status,
-      note: created.note,
-      courseId: created.courseId,
-      taskId: created.taskId,
-      course: created.course,
-      task: created.task,
-    },
+    version,
+    session: serializeActiveSession(created, version),
   };
 }
 
@@ -345,10 +355,20 @@ export async function pauseFocusSessionAction(sessionId: string) {
       lastSeenAt: now,
       status: FocusSessionStatus.PAUSED,
     },
+    include: {
+      course: { select: { id: true, name: true, code: true } },
+      task: { select: { id: true, title: true } },
+    },
   });
 
+  const version = bumpSessionVersion(sessionId);
   revalidatePath("/home/focus");
-  return { success: true, accumulatedSec: updated.accumulatedSec };
+  return {
+    success: true,
+    version,
+    accumulatedSec: updated.accumulatedSec,
+    session: serializeActiveSession(updated, version),
+  };
 }
 
 /**
@@ -376,17 +396,26 @@ export async function resumeFocusSessionAction(sessionId: string) {
   }
 
   const now = new Date();
-  await prisma.focusSession.update({
+  const updated = await prisma.focusSession.update({
     where: { id: sessionId },
     data: {
       lastResumedAt: now,
       lastSeenAt: now,
       status: FocusSessionStatus.RUNNING,
     },
+    include: {
+      course: { select: { id: true, name: true, code: true } },
+      task: { select: { id: true, title: true } },
+    },
   });
 
+  const version = bumpSessionVersion(sessionId);
   revalidatePath("/home/focus");
-  return { success: true };
+  return {
+    success: true,
+    version,
+    session: serializeActiveSession(updated, version),
+  };
 }
 
 /**
@@ -464,31 +493,17 @@ export async function endFocusSessionAction(sessionId: string, note?: string | n
     },
   });
 
+  const version = bumpSessionVersion(sessionId);
   revalidatePath("/home/focus");
   revalidatePath("/home/study-analytics");
 
   return {
     success: true,
+    version,
     action: "SAVED" as const,
     status,
     accumulatedSec: updated.accumulatedSec,
-    session: {
-      id: updated.id,
-      clientSessionId: updated.clientSessionId,
-      mode: updated.mode,
-      plannedSec: updated.plannedSec,
-      startedAt: updated.startedAt.toISOString(),
-      lastResumedAt: updated.lastResumedAt?.toISOString() || null,
-      accumulatedSec: updated.accumulatedSec,
-      lastSeenAt: updated.lastSeenAt?.toISOString() || null,
-      isCorrected: updated.isCorrected,
-      status: updated.status,
-      note: updated.note,
-      courseId: updated.courseId,
-      taskId: updated.taskId,
-      course: updated.course,
-      task: updated.task,
-    },
+    session: serializeActiveSession(updated, version),
   };
 }
 
@@ -588,27 +603,13 @@ export async function updateActiveSessionContextAction(
     },
   });
 
+  const version = bumpSessionVersion(sessionId);
   revalidatePath("/home/focus");
 
   return {
     success: true,
-    session: {
-      id: updated.id,
-      clientSessionId: updated.clientSessionId,
-      mode: updated.mode,
-      plannedSec: updated.plannedSec,
-      startedAt: updated.startedAt.toISOString(),
-      lastResumedAt: updated.lastResumedAt?.toISOString() || null,
-      accumulatedSec: updated.accumulatedSec,
-      lastSeenAt: updated.lastSeenAt?.toISOString() || null,
-      isCorrected: updated.isCorrected,
-      status: updated.status,
-      note: updated.note,
-      courseId: updated.courseId,
-      taskId: updated.taskId,
-      course: updated.course,
-      task: updated.task,
-    },
+    version,
+    session: serializeActiveSession(updated, version),
   };
 }
 
@@ -655,28 +656,14 @@ export async function extendFocusSessionAction(sessionId: string) {
     },
   });
 
+  const version = bumpSessionVersion(sessionId);
   revalidatePath("/home/focus");
   revalidatePath("/home/study-analytics");
 
   return {
     success: true,
-    session: {
-      id: updated.id,
-      clientSessionId: updated.clientSessionId,
-      mode: updated.mode,
-      plannedSec: updated.plannedSec,
-      startedAt: updated.startedAt.toISOString(),
-      lastResumedAt: updated.lastResumedAt?.toISOString() || null,
-      accumulatedSec: updated.accumulatedSec,
-      lastSeenAt: updated.lastSeenAt?.toISOString() || null,
-      isCorrected: updated.isCorrected,
-      status: updated.status,
-      note: updated.note,
-      courseId: updated.courseId,
-      taskId: updated.taskId,
-      course: updated.course,
-      task: updated.task,
-    },
+    version,
+    session: serializeActiveSession(updated, version),
   };
 }
 

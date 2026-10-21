@@ -83,11 +83,14 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
     breakState,
     isBreakActive,
     elapsedSec,
+    focusSec,
     remainingSec,
     overdueSec,
     isOverdue,
     isTargetReached,
     progressPercent,
+    isActionPending,
+    clockPhase,
     isAlarmActive,
     stopAlarm,
     extendFocus,
@@ -187,10 +190,14 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
     isFocus && activeSession?.mode === FocusMode.FOCUS && isTargetReached;
 
   const displayTime = isFocus
-    ? activeSession?.mode === FocusMode.STOPWATCH
-      ? formatSecToMMSS(elapsedSec)
+    ? clockPhase === "INVALID"
+      ? "Menyinkronkan..."
+      : activeSession?.mode === FocusMode.STOPWATCH
+      ? formatSecToMMSS(focusSec)
       : isOverdue
       ? formatOverdueText(overdueSec)
+      : remainingSec === 0 && !isTargetCompletedFocus
+      ? "Menyinkronkan..."
       : formatSecToMMSS(remainingSec)
     : isBreakActive
     ? formatSecToMMSS(remainingSec)
@@ -554,7 +561,7 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
 
           {isFocus && !isTargetCompletedFocus && (
             <div className="text-[11px] text-muted-foreground mt-1 font-mono">
-              Akumulasi: {formatSecToMMSS(elapsedSec)}
+              Akumulasi: {formatSecToMMSS(focusSec)}
             </div>
           )}
 
@@ -606,6 +613,7 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
                 variant="outline"
                 size="sm"
                 onClick={extendFocus}
+                disabled={isActionPending}
                 className="text-xs gap-1.5 rounded-full px-4 cursor-pointer"
               >
                 <PlusCircle className="h-3.5 w-3.5 text-primary" />
@@ -616,7 +624,7 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
                 variant="secondary"
                 size="sm"
                 onClick={handleEndSession}
-                disabled={isEnding}
+                disabled={isEnding || isActionPending}
                 className="text-xs gap-1.5 rounded-full px-4 cursor-pointer"
               >
                 <StopCircle className="h-3.5 w-3.5" />
@@ -654,6 +662,7 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
                 size="lg"
                 variant="outline"
                 onClick={pause}
+                disabled={isActionPending}
                 className="px-6 py-5 text-xs font-semibold rounded-full gap-2 cursor-pointer"
               >
                 <Pause className="h-4 w-4" />
@@ -663,6 +672,7 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
               <Button
                 size="lg"
                 onClick={resume}
+                disabled={isActionPending}
                 className="px-6 py-5 text-xs font-semibold rounded-full gap-2 cursor-pointer"
               >
                 <Play className="h-4 w-4 fill-current" />
@@ -674,7 +684,7 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
               size="lg"
               variant="secondary"
               onClick={handleEndSession}
-              disabled={isEnding}
+              disabled={isEnding || isActionPending}
               className="px-6 py-5 text-xs font-semibold rounded-full gap-2 cursor-pointer"
             >
               <StopCircle className="h-4 w-4 text-rose-500" />

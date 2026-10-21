@@ -67,10 +67,13 @@ function PipWindowContent() {
     isBreakActive,
     breakState,
     elapsedSec,
+    focusSec,
     remainingSec,
     overdueSec,
     isOverdue,
     isTargetReached,
+    isActionPending,
+    clockPhase,
     isAlarmActive,
     stopAlarm,
     extendFocus,
@@ -101,11 +104,17 @@ function PipWindowContent() {
     ? activeSession?.status === "RUNNING"
     : breakState.status === "RUNNING";
 
+  const isTargetCompletedFocus = isFocus && activeSession?.mode === FocusMode.FOCUS && isTargetReached;
+
   const displayTime = isFocus
-    ? activeSession?.mode === FocusMode.STOPWATCH
-      ? formatSecToMMSS(elapsedSec)
+    ? clockPhase === "INVALID"
+      ? "Menyinkronkan..."
+      : activeSession?.mode === FocusMode.STOPWATCH
+      ? formatSecToMMSS(focusSec)
       : isOverdue
       ? formatOverdueText(overdueSec)
+      : remainingSec === 0 && !isTargetCompletedFocus
+      ? "Menyinkronkan..."
       : formatSecToMMSS(remainingSec)
     : formatSecToMMSS(remainingSec);
 
@@ -224,8 +233,9 @@ function PipWindowContent() {
                 stopAlarm();
                 extendFocus();
               }}
+              disabled={isActionPending}
               title="Perpanjang fokus +5 menit"
-              className="px-2.5 py-1 bg-white text-emerald-800 hover:bg-white/90 rounded text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-xs"
+              className="px-2.5 py-1 bg-white text-emerald-800 hover:bg-white/90 rounded text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-xs disabled:opacity-50"
             >
               <PlusCircle className="h-3.5 w-3.5" />
               <span>+5m Fokus</span>
@@ -246,7 +256,8 @@ function PipWindowContent() {
             <button
               type="button"
               onClick={togglePlayPause}
-              className="px-3 py-1 bg-primary text-primary-foreground hover:bg-primary/90 rounded-md text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
+              disabled={isActionPending}
+              className="px-3 py-1 bg-primary text-primary-foreground hover:bg-primary/90 rounded-md text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer transition-colors disabled:opacity-50"
             >
               {isRunning ? (
                 <>
@@ -265,7 +276,8 @@ function PipWindowContent() {
               <button
                 type="button"
                 onClick={() => endSession()}
-                className="px-2.5 py-1 bg-muted hover:bg-muted/80 text-foreground rounded-md text-[11px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors"
+                disabled={isActionPending}
+                className="px-2.5 py-1 bg-muted hover:bg-muted/80 text-foreground rounded-md text-[11px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors disabled:opacity-50"
               >
                 <StopCircle className="h-3.5 w-3.5 text-rose-500" />
                 <span>Akhiri</span>
