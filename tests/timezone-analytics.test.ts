@@ -138,7 +138,7 @@ describe("Timezone & Analytics Aggregation Verification (Asia/Jakarta UTC+7)", (
     assert.strictEqual(calculatePercentChange(50, 100), -50);
   });
 
-  test("7. Database PostgreSQL Live: Verifikasi fungsi wibLocal pada query nyata", async () => {
+  test("7. Database PostgreSQL Live: Verifikasi fungsi wibLocal pada query nyata", async (t) => {
     try {
       const [res] = await prisma.$queryRaw<
         Array<{
@@ -170,8 +170,7 @@ describe("Timezone & Analytics Aggregation Verification (Asia/Jakarta UTC+7)", (
       assert.strictEqual(res.test2_dow, 1); // Senin
       assert.strictEqual(res.test2_weekstart, "2026-10-19"); // Batas awal minggu adalah Senin 19 Okt
     } catch (err) {
-      console.warn("DB connection skipped or failed:", err);
-      // In CI environments without live DB, pure function tests above provide full safety
+      t.skip(`Koneksi database PostgreSQL tidak terjangkau: ${(err as Error)?.message || err}`);
     }
   });
 });

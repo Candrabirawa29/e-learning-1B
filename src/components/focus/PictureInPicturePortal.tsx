@@ -66,7 +66,6 @@ function PipWindowContent() {
     activeSession,
     isBreakActive,
     breakState,
-    elapsedSec,
     focusSec,
     remainingSec,
     overdueSec,

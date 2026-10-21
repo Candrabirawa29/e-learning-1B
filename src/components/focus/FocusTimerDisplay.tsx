@@ -82,7 +82,6 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
     activeSession,
     breakState,
     isBreakActive,
-    elapsedSec,
     focusSec,
     remainingSec,
     overdueSec,

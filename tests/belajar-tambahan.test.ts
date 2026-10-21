@@ -1,11 +1,11 @@
 import { test, describe } from "node:test";
 import assert from "node:assert";
 import { visibleCoursesWhere, visibleCoursesSql } from "../src/lib/courses/course-filter";
+import { Prisma } from "@prisma/client";
 import {
   canManageCourse,
   canArchiveCourse,
   canUploadMaterial,
-  canManageMaterial,
   canManageTopic,
 } from "../src/lib/auth/rbac";
 import { CurrentUserSession } from "../src/lib/auth/session";
@@ -128,13 +128,19 @@ describe("Fitur Belajar Tambahan (Mata Kuliah Tambahan / Mandiri)", () => {
       ownerId: string | null;
       archivedAt: Date | null;
     },
-    whereInput: any
+    whereInput: Prisma.CourseWhereInput
   ): boolean {
-    if (whereInput.AND && Array.isArray(whereInput.AND)) {
-      return whereInput.AND.every((cond: any) => courseMatchesWhere(course, cond));
+    if (whereInput.AND) {
+      const andList = Array.isArray(whereInput.AND) ? whereInput.AND : [whereInput.AND];
+      if (!andList.every((cond) => courseMatchesWhere(course, cond as Prisma.CourseWhereInput))) {
+        return false;
+      }
     }
-    if (whereInput.OR && Array.isArray(whereInput.OR)) {
-      return whereInput.OR.some((cond: any) => courseMatchesWhere(course, cond));
+    if (whereInput.OR) {
+      const orList = Array.isArray(whereInput.OR) ? whereInput.OR : [whereInput.OR];
+      if (!orList.some((cond) => courseMatchesWhere(course, cond as Prisma.CourseWhereInput))) {
+        return false;
+      }
     }
     if (whereInput.kind && whereInput.kind !== course.kind) {
       return false;
@@ -148,8 +154,13 @@ describe("Fitur Belajar Tambahan (Mata Kuliah Tambahan / Mandiri)", () => {
     if (whereInput.archivedAt === null && course.archivedAt !== null) {
       return false;
     }
-    if (whereInput.archivedAt && whereInput.archivedAt.not !== undefined) {
-      if (whereInput.archivedAt.not === null && course.archivedAt === null) {
+    if (
+      whereInput.archivedAt &&
+      typeof whereInput.archivedAt === "object" &&
+      "not" in whereInput.archivedAt
+    ) {
+      const notVal = (whereInput.archivedAt as { not?: unknown }).not;
+      if (notVal === null && course.archivedAt === null) {
         return false;
       }
     }

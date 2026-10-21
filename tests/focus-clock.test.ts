@@ -8,7 +8,7 @@ describe("Focus Clock & State Synchronization Rules", () => {
     const nowMs = 1700000000000;
     const session = {
       status: "RUNNING",
-      mode: "FOCUS",
+      mode: "FOCUS" as const,
       plannedSec: 1500,
       accumulatedSec: 0,
       lastResumedAt: nowMs,
@@ -31,7 +31,7 @@ describe("Focus Clock & State Synchronization Rules", () => {
     const tPause = 1700000186000;
     const session = {
       status: "PAUSED",
-      mode: "FOCUS",
+      mode: "FOCUS" as const,
       plannedSec: 1500,
       accumulatedSec: 186,
       lastResumedAt: null,
@@ -54,7 +54,7 @@ describe("Focus Clock & State Synchronization Rules", () => {
     const tResume = 1700000500000;
     const session = {
       status: "RUNNING",
-      mode: "FOCUS",
+      mode: "FOCUS" as const,
       plannedSec: 1500,
       accumulatedSec: 186,
       lastResumedAt: tResume,
@@ -83,7 +83,7 @@ describe("Focus Clock & State Synchronization Rules", () => {
     accumulatedSec += 100;
     const sessionPause1 = {
       status: "PAUSED",
-      mode: "FOCUS",
+      mode: "FOCUS" as const,
       plannedSec: 1500,
       accumulatedSec,
       lastResumedAt: null,
@@ -98,7 +98,7 @@ describe("Focus Clock & State Synchronization Rules", () => {
     const tResume1 = tPause1 + 50 * 1000;
     const sessionRun2 = {
       status: "RUNNING",
-      mode: "FOCUS",
+      mode: "FOCUS" as const,
       plannedSec: 1500,
       accumulatedSec,
       lastResumedAt: tResume1,
@@ -112,7 +112,7 @@ describe("Focus Clock & State Synchronization Rules", () => {
     accumulatedSec = 300;
     const sessionPause2 = {
       status: "PAUSED",
-      mode: "FOCUS",
+      mode: "FOCUS" as const,
       plannedSec: 1500,
       accumulatedSec,
       lastResumedAt: null,
@@ -126,7 +126,7 @@ describe("Focus Clock & State Synchronization Rules", () => {
     const tResume2 = tResume1 + 230 * 1000;
     const sessionRun3 = {
       status: "RUNNING",
-      mode: "FOCUS",
+      mode: "FOCUS" as const,
       plannedSec: 1500,
       accumulatedSec,
       lastResumedAt: tResume2,
@@ -140,7 +140,7 @@ describe("Focus Clock & State Synchronization Rules", () => {
     accumulatedSec = 450;
     const sessionPause3 = {
       status: "PAUSED",
-      mode: "FOCUS",
+      mode: "FOCUS" as const,
       plannedSec: 1500,
       accumulatedSec,
       lastResumedAt: null,
@@ -157,7 +157,7 @@ describe("Focus Clock & State Synchronization Rules", () => {
     // Berjalan 1600s dari target 1500s
     const session = {
       status: "RUNNING",
-      mode: "FOCUS",
+      mode: "FOCUS" as const,
       plannedSec: 1500,
       accumulatedSec: 1000,
       lastResumedAt: t0,
@@ -172,7 +172,7 @@ describe("Focus Clock & State Synchronization Rules", () => {
     // Stopwatch mode: tidak dibatasi
     const sessionStopwatch = {
       status: "RUNNING",
-      mode: "STOPWATCH",
+      mode: "STOPWATCH" as const,
       plannedSec: 0,
       accumulatedSec: 1000,
       lastResumedAt: t0,
@@ -188,7 +188,7 @@ describe("Focus Clock & State Synchronization Rules", () => {
     const nowMs = 1700000555000;
     const session = {
       status: "RUNNING",
-      mode: "FOCUS",
+      mode: "FOCUS" as const,
       plannedSec: 1500,
       accumulatedSec: 186,
       lastResumedAt: nowMs,
@@ -212,7 +212,7 @@ describe("Focus Clock & State Synchronization Rules", () => {
 
     const sessionWithIso = {
       status: "RUNNING",
-      mode: "FOCUS",
+      mode: "FOCUS" as const,
       plannedSec: 1500,
       accumulatedSec: 186,
       lastResumedAt: isoUtc,
@@ -220,7 +220,7 @@ describe("Focus Clock & State Synchronization Rules", () => {
 
     const sessionWithEpoch = {
       status: "RUNNING",
-      mode: "FOCUS",
+      mode: "FOCUS" as const,
       plannedSec: 1500,
       accumulatedSec: 186,
       lastResumedAt: epochUtc,
@@ -246,7 +246,7 @@ describe("Focus Clock & State Synchronization Rules", () => {
     // Skenario: RUNNING tapi lastResumedAt null / tidak valid
     const sessionInvalid = {
       status: "RUNNING",
-      mode: "FOCUS",
+      mode: "FOCUS" as const,
       plannedSec: 1500,
       accumulatedSec: 186,
       lastResumedAt: null,
@@ -260,7 +260,7 @@ describe("Focus Clock & State Synchronization Rules", () => {
     // Skenario: NaN dalam akumulasi
     const sessionNaN = {
       status: "RUNNING",
-      mode: "FOCUS",
+      mode: "FOCUS" as const,
       plannedSec: 1500,
       accumulatedSec: NaN,
       lastResumedAt: nowMs,
@@ -274,7 +274,7 @@ describe("Focus Clock & State Synchronization Rules", () => {
     // Model rekonsiliasi state klien
     let clientSession: ActiveFocusSessionDto = {
       id: "sess-1",
-      userId: "u1",
+      clientSessionId: "cs-1",
       mode: "FOCUS",
       plannedSec: 1500,
       startedAt: new Date(1700000000000).toISOString(),
@@ -313,7 +313,7 @@ describe("Focus Clock & State Synchronization Rules", () => {
     // 2. Snapshot lama dari background heartbeat / slow revalidation tiba (versi 1, status RUNNING)
     const staleSnapshot: ActiveFocusSessionDto = {
       id: "sess-1",
-      userId: "u1",
+      clientSessionId: "cs-1",
       mode: "FOCUS",
       plannedSec: 1500,
       startedAt: new Date(1700000000000).toISOString(),
@@ -348,7 +348,7 @@ describe("Focus Clock & State Synchronization Rules", () => {
     // Sesi dalam keadaan PAUSED
     let clientSession: ActiveFocusSessionDto = {
       id: "sess-1",
-      userId: "u1",
+      clientSessionId: "cs-1",
       mode: "FOCUS",
       plannedSec: 1500,
       startedAt: new Date(1700000000000).toISOString(),

@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { BookOpen, CheckSquare, Info, Sparkles } from "lucide-react";
+import { BookOpen, CheckSquare, Info } from "lucide-react";
 import { CourseBreakdownRow, TaskBreakdownRow } from "@/lib/analytics/study-queries";
 
 interface StudySubjectTaskDistributionProps {

@@ -29,6 +29,7 @@ import {
   startRepeatingAlarm,
   stopRepeatingAlarm,
   playAlarmSample,
+} from "@/lib/focus/sounds";
 import {
   resolveFocusSessionProgress,
   getFocusClock,
@@ -203,6 +204,15 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
     []
   );
 
+  const refreshActiveSession = React.useCallback(async () => {
+    try {
+      const active = await getActiveFocusSessionAction();
+      reconcileSession(active);
+    } catch {
+      // ignore
+    }
+  }, [reconcileSession]);
+
   // Selected context (Course / Task / Mode)
   const [selectedCourseId, setSelectedCourseId] = React.useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = React.useState<string | null>(null);
@@ -307,7 +317,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [reconcileSession]);
 
   // Save break state to localStorage
   React.useEffect(() => {
@@ -424,7 +434,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
         : 100;
     clockPhase = breakState.status === "RUNNING" ? "RUNNING" : "PAUSED";
   } else if (activeSession) {
-    const clock = getFocusClock(activeSession, nowMs > 0 ? nowMs : Date.now());
+    const clock = getFocusClock(activeSession, nowMs);
     clockPhase = clock.phase;
     focusSec = clock.focusSec;
     remainingSec = clock.remainingSec;
@@ -441,7 +451,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
         lastSeenAt: activeSession.lastSeenAt,
         status: activeSession.status,
       },
-      nowMs > 0 ? nowMs : Date.now()
+      nowMs
     );
 
     elapsedSec = evaluation.elapsedSec;
@@ -457,9 +467,18 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
           ? Math.min(100, Math.round((focusSec / activeSession.plannedSec) * 100))
           : 100;
     }
+  }
 
-    // Lazy client status sync if auto-completed (>10m overdue)
-    if (evaluation.isAutoCompleted && activeSession.status === FocusSessionStatus.RUNNING) {
+  // Lazy client status sync if auto-completed (>10m overdue)
+  const isAutoCompletedSession = Boolean(
+    activeSession &&
+      activeSession.mode === FocusMode.FOCUS &&
+      overdueSec >= 600 &&
+      activeSession.status === FocusSessionStatus.RUNNING
+  );
+  const plannedSecForSync = activeSession?.plannedSec;
+  React.useEffect(() => {
+    if (isAutoCompletedSession) {
       const autoCompletedVersion = sessionVersionRef.current + 1;
       sessionVersionRef.current = autoCompletedVersion;
       setActiveSession((prev) =>
@@ -467,13 +486,13 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
           ? {
               ...prev,
               status: FocusSessionStatus.COMPLETED,
-              accumulatedSec: activeSession.plannedSec,
+              accumulatedSec: plannedSecForSync ?? prev.plannedSec,
               version: autoCompletedVersion,
             }
           : null
       );
     }
-  }
+  }, [isAutoCompletedSession, plannedSecForSync]);
 
   // Masukan tidak valid: muat ulang satu kali dari server dan catat console.error
   const invalidReloadTriggeredRef = React.useRef(false);
@@ -494,7 +513,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
     } else {
       invalidReloadTriggeredRef.current = false;
     }
-  }, [clockPhase, activeSession]);
+  }, [clockPhase, activeSession, refreshActiveSession]);
 
   // Alarm sound & Flashing Tab Title
   const stopAlarm = React.useCallback(() => {
@@ -1134,15 +1153,6 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
 
   const dismissSummary = () => {
     setSummarySession(null);
-  };
-
-  const refreshActiveSession = async () => {
-    try {
-      const active = await getActiveFocusSessionAction();
-      reconcileSession(active);
-    } catch {
-      // ignore
-    }
   };
 
   const refreshPreferences = async () => {

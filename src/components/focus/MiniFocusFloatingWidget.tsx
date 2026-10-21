@@ -25,7 +25,6 @@ export function MiniFocusFloatingWidget() {
     activeSession,
     isBreakActive,
     breakState,
-    elapsedSec,
     focusSec,
     remainingSec,
     overdueSec,

@@ -377,7 +377,7 @@ export function FocusHistoryTable({ courses, tasks = [] }: FocusHistoryTableProp
                 const isActiveRow = Boolean(activeSession && activeSession.id === item.id);
                 const effectiveSession = isActiveRow ? activeSession! : item;
                 const effectiveStatus = effectiveSession.status as FocusSessionStatus;
-                const clock = getFocusClock(effectiveSession, nowMs > 0 ? nowMs : Date.now());
+                const clock = getFocusClock(effectiveSession, nowMs);
 
                 return (
                   <TableRow key={item.id} className="text-xs hover:bg-muted/30 transition-colors">
@@ -476,7 +476,8 @@ export function FocusHistoryTable({ courses, tasks = [] }: FocusHistoryTableProp
                     </div>
                   </TableCell>
                 </TableRow>
-              ))
+              );
+            })
             )}
           </TableBody>
         </Table>

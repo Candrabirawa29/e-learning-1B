@@ -24,11 +24,11 @@ import { wibLocal } from "@/lib/analytics/study-queries";
 
 const sessionVersions = new Map<string, number>();
 
-export function getSessionVersion(sessionId: string): number {
+function getSessionVersion(sessionId: string): number {
   return sessionVersions.get(sessionId) ?? 1;
 }
 
-export function bumpSessionVersion(sessionId: string): number {
+function bumpSessionVersion(sessionId: string): number {
   const current = sessionVersions.get(sessionId) ?? 0;
   const next = current + 1;
   sessionVersions.set(sessionId, next);
