@@ -173,31 +173,42 @@ Mohon jawab pertanyaan mahasiswa berikut berdasarkan data di atas atau gunakan t
       })),
     ];
 
-    // Buat AbortController dengan timeout 30 detik
-    const abortController = new AbortController();
-    const timeoutId = setTimeout(() => abortController.abort(), 30000);
+    const modelName = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
+
+    // Buat AbortController untuk langkah inisialisasi / tool calling (30 detik)
+    const initialAbortController = new AbortController();
+    const initialTimeoutId = setTimeout(() => initialAbortController.abort(), 30000);
 
     // Langkah A: Generate dengan Tool Calling (jika model meminta tool call)
     let initialResponse;
     try {
       initialResponse = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
+        model: modelName,
         contents,
         config: {
           systemInstruction: SYSTEM_INSTRUCTION,
           tools: [{ functionDeclarations: toolDeclarations }],
           maxOutputTokens: 1500,
           temperature: 0.4,
-          abortSignal: abortController.signal,
+          abortSignal: initialAbortController.signal,
         },
       });
     } catch (genErr: unknown) {
-      clearTimeout(timeoutId);
-      const errMsg = genErr instanceof Error ? genErr.message : "Gagal memproses permintaan ke model.";
+      clearTimeout(initialTimeoutId);
+      const isAbort =
+        genErr instanceof Error &&
+        (genErr.name === "AbortError" || genErr.message.toLowerCase().includes("abort"));
+      const errMsg = isAbort
+        ? "Batas waktu pemrosesan 30 detik terlampaui"
+        : genErr instanceof Error
+        ? genErr.message
+        : "Gagal memproses permintaan ke model.";
       return new Response(
         `Maaf, AI Study Analyst mengalami kendala jaringan atau batas waktu: ${errMsg}. Silakan coba beberapa saat lagi.`,
         { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } }
       );
+    } finally {
+      clearTimeout(initialTimeoutId);
     }
 
     // Jika model meminta eksekusi tool
@@ -233,10 +244,12 @@ Mohon jawab pertanyaan mahasiswa berikut berdasarkan data di atas atau gunakan t
         };
       }
 
-      // Kirim hasil tool kembali ke model dan stream hasil akhirnya
+      // Kirim hasil tool kembali ke model dan stream hasil akhirnya.
+      // Sertakan candidate content utuh dari respons awal agar thoughtSignature tetap terjaga.
+      const candidateContent = initialResponse.candidates?.[0]?.content;
       const toolFollowUpContents = [
         ...contents,
-        {
+        candidateContent || {
           role: "model",
           parts: [{ functionCall }],
         },
@@ -253,18 +266,37 @@ Mohon jawab pertanyaan mahasiswa berikut berdasarkan data di atas atau gunakan t
         },
       ];
 
-      const streamResponse = await ai.models.generateContentStream({
-        model: "gemini-3.8-flash",
-        contents: toolFollowUpContents,
-        config: {
-          systemInstruction: SYSTEM_INSTRUCTION,
-          maxOutputTokens: 1500,
-          temperature: 0.4,
-          abortSignal: abortController.signal,
-        },
-      });
+      // Alokasikan AbortController baru untuk streaming respons akhir (45 detik)
+      const streamAbortController = new AbortController();
+      const streamTimeoutId = setTimeout(() => streamAbortController.abort(), 45000);
 
-      clearTimeout(timeoutId);
+      let streamResponse;
+      try {
+        streamResponse = await ai.models.generateContentStream({
+          model: modelName,
+          contents: toolFollowUpContents,
+          config: {
+            systemInstruction: SYSTEM_INSTRUCTION,
+            maxOutputTokens: 1500,
+            temperature: 0.4,
+            abortSignal: streamAbortController.signal,
+          },
+        });
+      } catch (streamErr: unknown) {
+        clearTimeout(streamTimeoutId);
+        const isAbort =
+          streamErr instanceof Error &&
+          (streamErr.name === "AbortError" || streamErr.message.toLowerCase().includes("abort"));
+        const errMsg = isAbort
+          ? "Batas waktu streaming terlampaui"
+          : streamErr instanceof Error
+          ? streamErr.message
+          : "Gagal memulai streaming respons.";
+        return new Response(
+          `Maaf, AI Study Analyst mengalami kendala streaming: ${errMsg}. Silakan coba lagi.`,
+          { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } }
+        );
+      }
 
       const encoder = new TextEncoder();
       const customReadable = new ReadableStream({
@@ -281,6 +313,7 @@ Mohon jawab pertanyaan mahasiswa berikut berdasarkan data di atas atau gunakan t
               encoder.encode("\n[Terputus saat membaca respons streaming model]")
             );
           } finally {
+            clearTimeout(streamTimeoutId);
             controller.close();
           }
         },
@@ -296,7 +329,6 @@ Mohon jawab pertanyaan mahasiswa berikut berdasarkan data di atas atau gunakan t
     }
 
     // Jika model langsung merespons teks tanpa tool call
-    clearTimeout(timeoutId);
     const directText = initialResponse.text || "Tidak ada respons teks yang dihasilkan.";
 
     return new Response(directText, {

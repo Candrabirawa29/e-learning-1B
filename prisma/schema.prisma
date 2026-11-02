@@ -123,6 +123,7 @@ model Profile {
   focusSessions        FocusSession[]    @relation("UserFocusSessions")
   studyPreference      StudyPreference?  @relation("UserStudyPreference")
   aiUsages             AiUsage[]         @relation("UserAiUsage")
+  glossaryTerms        GlossaryTerm[]    @relation("UserGlossaryTerms")
 
   @@map("profiles")
 }
@@ -183,6 +184,7 @@ model Course {
   schedules   CourseSchedule[]
   pjs         CoursePJ[]
   focusSessions FocusSession[]
+  glossaryTerms GlossaryTerm[]
 
   @@index([classId])
   @@index([ownerId])
@@ -448,4 +450,30 @@ model AiUsage {
   @@unique([userId, date])
   @@index([userId])
   @@map("ai_usages")
+}
+
+model GlossaryTerm {
+  id              String    @id @default(uuid())
+  userId          String
+  term            String
+  termKey         String
+  shortDefinition String?
+  body            String    @db.Text
+  courseId        String?
+  tags            String[]
+  source          String?
+  verified        Boolean   @default(false)
+  box             Int       @default(1)
+  nextReviewAt    DateTime?
+  archivedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user   Profile @relation("UserGlossaryTerms", fields: [userId], references: [id], onDelete: Cascade)
+  course Course? @relation(fields: [courseId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, termKey])
+  @@index([userId, archivedAt])
+  @@index([userId, courseId])
+  @@map("glossary_terms")
 }

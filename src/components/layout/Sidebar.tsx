@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   CheckSquare,
   BookOpen,
+  BookA,
   Megaphone,
   User,
   Users,
@@ -47,6 +48,7 @@ export function SidebarNav({ session, isMobile = false }: SidebarNavProps) {
   const studyIntelligenceLinks = [
     { href: "/home/focus", label: "Ruang Fokus", icon: Timer },
     { href: "/home/study-analytics", label: "Analitik Belajar", icon: BarChart2 },
+    { href: "/home/kosakata", label: "Kosakata", icon: BookA },
   ];
 
   const memberManagementLinks = [
