@@ -87,31 +87,33 @@ export function StudyKpiCards({
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
       {/* =========================================================================
           KARTU 1: Total Waktu Fokus
-          Jendela tetap: Hari ini
-          Sekunder: Minggu ini (sejak Senin) X dari Y & sisa Z, Bulan ini
-          Tanpa progress bar & tanpa rata-rata per hari
          ========================================================================= */}
-      <Card className="border shadow-xs p-4 flex flex-col justify-between">
+      <Card className="border border-border/80 bg-card/95 shadow-sm rounded-2xl p-4 sm:p-5 flex flex-col justify-between overflow-hidden backdrop-blur-xs">
         <div>
-          <div className="flex items-center justify-between text-muted-foreground text-xs mb-1">
+          <div className="flex items-center justify-between text-muted-foreground text-xs mb-2">
             <span className="font-semibold text-foreground">Total Waktu Fokus</span>
             <div className="flex items-center gap-1.5">
-              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">
+              <Badge
+                variant="outline"
+                className="text-[10px] px-2 py-0.5 font-medium border-cyan-500/30 text-cyan-600 dark:text-cyan-400 bg-cyan-500/10"
+              >
                 Hari ini
               </Badge>
-              <Clock className="h-4 w-4 text-primary" />
+              <div className="p-1 rounded-lg bg-cyan-500/10 text-cyan-500">
+                <Clock className="h-3.5 w-3.5" />
+              </div>
             </div>
           </div>
 
           <div className="my-2">
-            <div className="text-2xl font-bold font-mono text-foreground tracking-tight">
+            <div className="text-2xl sm:text-3xl font-bold font-mono text-foreground tracking-tight">
               {formatMinutesToHours(todayMinutes)}
             </div>
-            <span className="text-[11px] text-muted-foreground">Hari ini</span>
+            <span className="text-[11px] text-muted-foreground">Akumulasi hari ini</span>
           </div>
         </div>
 
-        <div className="pt-2.5 border-t space-y-1 text-[11px] text-muted-foreground">
+        <div className="pt-3 border-t space-y-1.5 text-[11px] text-muted-foreground">
           <div className="leading-tight">
             <span>Minggu ini (sejak Senin): </span>
             <strong className="text-foreground font-mono">
@@ -134,30 +136,30 @@ export function StudyKpiCards({
 
       {/* =========================================================================
           KARTU 2: Indeks Konsistensi
-          Jendela tetap: Minggu ini (sejak Senin)
-          Popover "Cara menghitung", label per komponen, keterangan target sendiri,
-          prorata hari berlalu, skor minggu lalu, batas 7 hari data
          ========================================================================= */}
-      <Card className="border shadow-xs p-4 flex flex-col justify-between">
+      <Card className="border border-border/80 bg-card/95 shadow-sm rounded-2xl p-4 sm:p-5 flex flex-col justify-between overflow-hidden backdrop-blur-xs">
         <div>
-          <div className="flex items-center justify-between text-muted-foreground text-xs mb-1">
+          <div className="flex items-center justify-between text-muted-foreground text-xs mb-2">
             <span className="font-semibold text-foreground">Indeks Konsistensi</span>
             <div className="flex items-center gap-1.5">
-              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">
-                Minggu ini (sejak Senin)
+              <Badge
+                variant="outline"
+                className="text-[10px] px-2 py-0.5 font-medium border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/10"
+              >
+                Minggu ini
               </Badge>
               <Popover>
                 <PopoverTrigger
-                  className="inline-flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                  className="inline-flex items-center justify-center rounded-lg p-1 text-muted-foreground hover:text-foreground bg-muted/40 transition-colors cursor-pointer"
                   title="Cara menghitung indeks konsistensi"
                 >
                   <Info className="h-3.5 w-3.5" />
                   <span className="sr-only">Cara menghitung</span>
                 </PopoverTrigger>
-                <PopoverContent className="w-80 p-3.5 text-xs text-popover-foreground space-y-2.5 shadow-lg">
+                <PopoverContent className="w-80 p-3.5 text-xs text-popover-foreground space-y-2.5 shadow-xl rounded-xl border border-border/80">
                   <PopoverHeader>
                     <PopoverTitle className="font-semibold text-xs flex items-center gap-1.5 text-foreground">
-                      <Target className="h-4 w-4 text-primary" />
+                      <Target className="h-4 w-4 text-cyan-500" />
                       Cara Menghitung Indeks Konsistensi
                     </PopoverTitle>
                   </PopoverHeader>
@@ -176,16 +178,15 @@ export function StudyKpiCards({
                         <strong className="text-foreground">Sesi Mencapai Target (20 poin)</strong>: Rasio sesi fokus yang mencapai durasi rencana terhadap total sesi yang dimulai minggu ini.
                       </li>
                     </ul>
-                    <div className="p-2 bg-muted/60 rounded-md border text-[10px] text-foreground">
+                    <div className="p-2 bg-muted/60 rounded-lg border text-[10px] text-foreground">
                       <strong>Penyesuaian Berjalan:</strong> Target menit dan hari aktif dikalikan <code>(hari berlalu / 7)</code> sejak hari Senin.
                     </div>
-                    <p className="text-[10px] italic text-primary/80">
+                    <p className="text-[10px] italic text-cyan-600 dark:text-cyan-400">
                       * Dibandingkan dengan targetmu sendiri, bukan dengan orang lain.
                     </p>
                   </div>
                 </PopoverContent>
               </Popover>
-              <Target className="h-4 w-4 text-primary" />
             </div>
           </div>
 
@@ -193,7 +194,7 @@ export function StudyKpiCards({
             {consistency.score !== null ? (
               <div>
                 <div className="flex items-baseline gap-1.5">
-                  <span className="text-2xl font-bold font-mono text-foreground tracking-tight">
+                  <span className="text-2xl sm:text-3xl font-bold font-mono text-foreground tracking-tight">
                     {consistency.score}
                   </span>
                   <span className="text-xs text-muted-foreground">/ 100</span>
@@ -209,14 +210,14 @@ export function StudyKpiCards({
               </div>
             ) : (
               <div>
-                <div className="text-sm font-semibold text-foreground py-0.5">
+                <div className="text-base font-semibold text-foreground py-0.5">
                   Mengumpulkan data
                 </div>
-                <div className="text-[11px] text-muted-foreground">
+                <div className="text-[11px] text-muted-foreground font-mono">
                   (hari ke-{consistency.collectingDayNumber} dari 7)
                 </div>
                 {consistency.lastWeekScore !== null && (
-                  <div className="text-[10px] text-muted-foreground mt-0.5">
+                  <div className="text-[10px] text-muted-foreground mt-0.5 font-mono">
                     Minggu lalu: {consistency.lastWeekScore}
                   </div>
                 )}
@@ -225,7 +226,7 @@ export function StudyKpiCards({
           </div>
         </div>
 
-        <div className="pt-2 border-t space-y-1 text-[10px] text-muted-foreground">
+        <div className="pt-3 border-t space-y-1 text-[10px] text-muted-foreground">
           {consistency.score !== null ? (
             <>
               <div className="truncate" title={`Pencapaian target ${consistency.targetPercent}% -> ${consistency.targetComponent}/50 poin`}>
@@ -250,20 +251,22 @@ export function StudyKpiCards({
       </Card>
 
       {/* =========================================================================
-          KARTU 3: Tren Belajar (4 Minggu)
-          Jendela tetap: 4 minggu terakhir
-          Selalu tampilkan batang total mingguan yang ada;
-          Label naik/stabil/turun hanya bila minimal 3 minggu ("baru N dari 3 minggu")
+          KARTU 3: Tren Belajar (4 Minggu) dengan Pinterest-style mini bars
          ========================================================================= */}
-      <Card className="border shadow-xs p-4 flex flex-col justify-between">
+      <Card className="border border-border/80 bg-card/95 shadow-sm rounded-2xl p-4 sm:p-5 flex flex-col justify-between overflow-hidden backdrop-blur-xs">
         <div>
-          <div className="flex items-center justify-between text-muted-foreground text-xs mb-1">
+          <div className="flex items-center justify-between text-muted-foreground text-xs mb-2">
             <span className="font-semibold text-foreground">Tren Belajar</span>
             <div className="flex items-center gap-1.5">
-              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">
-                4 minggu terakhir
+              <Badge
+                variant="outline"
+                className="text-[10px] px-2 py-0.5 font-medium border-indigo-500/30 text-indigo-600 dark:text-indigo-400 bg-indigo-500/10"
+              >
+                4 minggu
               </Badge>
-              <TrendingUp className="h-4 w-4 text-primary" />
+              <div className="p-1 rounded-lg bg-indigo-500/10 text-indigo-500">
+                <TrendingUp className="h-3.5 w-3.5" />
+              </div>
             </div>
           </div>
 
@@ -272,7 +275,7 @@ export function StudyKpiCards({
               <div>
                 <Badge
                   variant="outline"
-                  className="text-[11px] font-medium px-2 py-0.5 bg-muted/50 text-muted-foreground border-dashed"
+                  className="text-[11px] font-medium px-2 py-0.5 bg-muted/40 text-muted-foreground border-dashed"
                 >
                   {trend.label}
                 </Badge>
@@ -287,10 +290,10 @@ export function StudyKpiCards({
                     variant="outline"
                     className={`text-xs font-bold px-2 py-0.5 ${
                       trend.direction === "UP"
-                        ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300"
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
                         : trend.direction === "DOWN"
-                        ? "bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300"
-                        : "bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950 dark:text-blue-300"
+                        ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                        : "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/30"
                     }`}
                   >
                     {trend.direction === "UP"
@@ -311,8 +314,8 @@ export function StudyKpiCards({
           </div>
         </div>
 
-        {/* 4 Mini Bar Mingguan */}
-        <div className="pt-2.5 border-t">
+        {/* 4 Mini Bar Mingguan (Styled like Pinterest Inflow columns) */}
+        <div className="pt-3 border-t">
           <div className="flex items-end justify-between gap-2 h-11 px-1">
             {weeklyBars.map((bar, idx) => {
               const heightPct = maxWeeklyMinutes > 0 ? Math.round((bar.minutes / maxWeeklyMinutes) * 100) : 0;
@@ -320,17 +323,19 @@ export function StudyKpiCards({
               return (
                 <div key={idx} className="flex-1 flex flex-col items-center gap-1">
                   <div
-                    className="w-full bg-muted/80 rounded-t flex items-end justify-center overflow-hidden h-7"
+                    className="w-full bg-muted/40 rounded-t-md flex items-end justify-center overflow-hidden h-7"
                     title={`${bar.weekLabel}: ${formatMinutesToHours(bar.minutes)}`}
                   >
                     <div
-                      style={{ height: `${Math.max(bar.minutes > 0 ? 15 : 0, heightPct)}%` }}
-                      className={`w-full transition-all duration-300 rounded-t ${
-                        isCurrentWeek ? "bg-primary" : "bg-primary/45"
+                      style={{ height: `${Math.max(bar.minutes > 0 ? 18 : 0, heightPct)}%` }}
+                      className={`w-full transition-all duration-300 rounded-t-md ${
+                        isCurrentWeek
+                          ? "bg-cyan-500 shadow-xs"
+                          : "bg-indigo-500/40 dark:bg-indigo-500/30"
                       }`}
                     />
                   </div>
-                  <span className="text-[9px] text-muted-foreground font-mono leading-none">
+                  <span className={`text-[9px] font-mono leading-none ${isCurrentWeek ? "font-semibold text-cyan-600 dark:text-cyan-400" : "text-muted-foreground"}`}>
                     {bar.weekLabel}
                   </span>
                 </div>
@@ -341,41 +346,43 @@ export function StudyKpiCards({
       </Card>
 
       {/* =========================================================================
-          KARTU 4: Sesi mencapai target durasi (Ganti nama dari Penyelesaian Sesi)
-          Jendela dinamis sesuai filter: 7 hari terakhir / 30 hari terakhir / 1 tahun ini
-          Keterangan: "sesi yang mencapai durasi rencananya, bukan target mingguan"
-          Baris "Target mingguan tercapai X%" dipertahankan
+          KARTU 4: Sesi mencapai target durasi
          ========================================================================= */}
-      <Card className="border shadow-xs p-4 flex flex-col justify-between">
+      <Card className="border border-border/80 bg-card/95 shadow-sm rounded-2xl p-4 sm:p-5 flex flex-col justify-between overflow-hidden backdrop-blur-xs">
         <div>
-          <div className="flex items-center justify-between text-muted-foreground text-xs mb-1">
+          <div className="flex items-center justify-between text-muted-foreground text-xs mb-2">
             <span className="font-semibold text-foreground leading-tight">
               Sesi mencapai target durasi
             </span>
             <div className="flex items-center gap-1.5 shrink-0">
-              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">
+              <Badge
+                variant="outline"
+                className="text-[10px] px-2 py-0.5 font-medium border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10"
+              >
                 {filterPeriodLabel}
               </Badge>
-              <CheckCircle className="h-4 w-4 text-primary" />
+              <div className="p-1 rounded-lg bg-emerald-500/10 text-emerald-500">
+                <CheckCircle className="h-3.5 w-3.5" />
+              </div>
             </div>
           </div>
 
           <div className="my-2">
             <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-bold font-mono text-foreground tracking-tight">
+              <span className="text-2xl sm:text-3xl font-bold font-mono text-foreground tracking-tight">
                 {completionRatio}%
               </span>
               <span className="text-xs text-muted-foreground font-mono">
-                ({completedSessionsCount} dari {startedSessionsCount} sesi)
+                ({completedSessionsCount}/{startedSessionsCount})
               </span>
             </div>
             <p className="text-[10px] text-muted-foreground leading-tight mt-1">
-              sesi yang mencapai durasi rencananya, bukan target mingguan
+              sesi yang mencapai durasi rencananya
             </p>
           </div>
         </div>
 
-        <div className="pt-2 border-t space-y-1 text-[11px] text-muted-foreground">
+        <div className="pt-3 border-t space-y-1 text-[11px] text-muted-foreground">
           <div className="flex items-center justify-between">
             <span>Target mingguan tercapai:</span>
             <strong className="text-foreground font-mono">{targetPercent}%</strong>

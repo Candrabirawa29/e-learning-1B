@@ -5,6 +5,7 @@ import {
   TaskTargetType,
   MaterialType,
   MaterialVisibility,
+  AnnouncementVisibility,
   Role,
 } from "@prisma/client";
 
@@ -102,13 +103,14 @@ export const createMaterialSchema = z.object({
   fileName: z.string().optional().nullable(),
   fileSize: z.coerce.number().optional().nullable(),
   externalUrl: z.string().url("URL tautan materi tidak valid").optional().or(z.literal("")),
-  visibility: z.nativeEnum(MaterialVisibility).default(MaterialVisibility.PUBLIC),
+  visibility: z.nativeEnum(MaterialVisibility).default(MaterialVisibility.AUTHENTICATED),
 });
 
 export const createAnnouncementSchema = z.object({
   title: z.string().min(3, "Judul pengumuman minimal 3 karakter").max(200),
   content: z.string().min(5, "Isi pengumuman minimal 5 karakter"),
   isPinned: z.boolean().default(false),
+  visibility: z.nativeEnum(AnnouncementVisibility).default(AnnouncementVisibility.AUTHENTICATED),
 });
 
 export const updateMemberRoleSchema = z.object({

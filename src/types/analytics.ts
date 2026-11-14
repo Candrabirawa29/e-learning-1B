@@ -29,6 +29,9 @@ export interface TrendChartPoint {
   label: string;
   minutes: number;
   sessionCount: number;
+  previousDate?: string;
+  previousMinutes?: number;
+  previousSessionCount?: number;
 }
 
 export interface StudyAnalyticsDashboardData {

@@ -19,6 +19,7 @@ import { Eye, LogOut, User, Menu, ShieldAlert } from "lucide-react";
 import { useTransition } from "react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { SidebarNav } from "./Sidebar";
+import { ThemeToggle } from "./ThemeToggle";
 
 interface NavbarProps {
   session: CurrentUserSession;
@@ -138,6 +139,9 @@ export function Navbar({ session }: NavbarProps) {
               </DropdownMenuContent>
             </DropdownMenu>
           )}
+
+          {/* Theme Toggle (Dark / Light / System) */}
+          <ThemeToggle />
 
           {/* User Profile or Login */}
           {session.user && session.profile ? (

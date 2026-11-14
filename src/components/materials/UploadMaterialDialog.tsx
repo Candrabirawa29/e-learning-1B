@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -70,7 +71,8 @@ export function UploadMaterialDialog({
   );
   const [materialType, setMaterialType] = React.useState<MaterialType>(MaterialType.PDF);
   const [externalUrl, setExternalUrl] = React.useState("");
-  const visibility = MaterialVisibility.PUBLIC;
+  const [isPublic, setIsPublic] = React.useState(false);
+  const visibility = isPublic ? MaterialVisibility.PUBLIC : MaterialVisibility.AUTHENTICATED;
   const [file, setFile] = React.useState<File | null>(null);
 
   React.useEffect(() => {
@@ -223,6 +225,7 @@ export function UploadMaterialDialog({
       setFile(null);
       setExternalUrl("");
       setTopicId("none");
+      setIsPublic(false);
       setUploadProgress("");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Terjadi kesalahan saat mengunggah materi.");
@@ -422,6 +425,18 @@ export function UploadMaterialDialog({
                 rows={uploadMode === "notes" ? 5 : 2}
                 required={uploadMode === "notes"}
               />
+            </div>
+
+            {/* Hak Akses Publik */}
+            <div className="flex items-center space-x-2 pt-2 border-t">
+              <Checkbox
+                id="mat-public"
+                checked={isPublic}
+                onCheckedChange={(checked) => setIsPublic(!!checked)}
+              />
+              <Label htmlFor="mat-public" className="text-xs font-normal cursor-pointer">
+                Publikasikan ke umum (dapat diakses dan diunduh pengunjung tanpa login)
+              </Label>
             </div>
 
             {/* Status Progress Upload */}

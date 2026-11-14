@@ -61,8 +61,12 @@ export function StudyAnalyticsClient({ initialData }: StudyAnalyticsClientProps)
   const areaChartData = React.useMemo(() => {
     return data.trendChartData.map((d) => ({
       dateKey: d.date,
+      label: d.label,
       minutes: d.minutes,
       sessions: d.sessionCount,
+      previousDateKey: d.previousDate,
+      previousMinutes: d.previousMinutes ?? 0,
+      previousSessions: d.previousSessionCount ?? 0,
     }));
   }, [data.trendChartData]);
 

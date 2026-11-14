@@ -14,7 +14,7 @@ export default async function PublicAnnouncementsPage() {
     const class1B = await prisma.class.findUnique({ where: { code: "1-B" } });
     if (class1B) {
       announcements = await prisma.announcement.findMany({
-        where: { classId: class1B.id },
+        where: { classId: class1B.id, visibility: "PUBLIC" },
         include: { createdBy: true },
         orderBy: [{ isPinned: "desc" }, { publishedAt: "desc" }],
       });

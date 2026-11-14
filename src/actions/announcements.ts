@@ -5,13 +5,14 @@ import { getCurrentSession, assertCanMutate } from "@/lib/auth/session";
 import { canCreateAnnouncement, canManageAnnouncement } from "@/lib/auth/rbac";
 import { createAnnouncementSchema } from "@/lib/validations";
 import { logActivity } from "@/lib/activity";
-import { ActivityAction } from "@prisma/client";
+import { ActivityAction, AnnouncementVisibility } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 
 export async function createAnnouncementAction(data: {
   title: string;
   content: string;
   isPinned?: boolean;
+  visibility?: AnnouncementVisibility;
 }) {
   const session = await getCurrentSession();
   if (!session.user || !session.profile) {
@@ -36,6 +37,7 @@ export async function createAnnouncementAction(data: {
       title: parsed.title,
       content: parsed.content,
       isPinned: parsed.isPinned || false,
+      visibility: parsed.visibility,
       createdById: session.profile.id,
     },
   });

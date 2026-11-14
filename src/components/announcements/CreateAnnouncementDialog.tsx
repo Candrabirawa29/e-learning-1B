@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { createAnnouncementAction } from "@/actions/announcements";
+import { AnnouncementVisibility } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -30,6 +31,7 @@ export function CreateAnnouncementDialog({ triggerButton }: CreateAnnouncementDi
   const [title, setTitle] = React.useState("");
   const [content, setContent] = React.useState("");
   const [isPinned, setIsPinned] = React.useState(false);
+  const [isPublic, setIsPublic] = React.useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,6 +46,7 @@ export function CreateAnnouncementDialog({ triggerButton }: CreateAnnouncementDi
         title: title.trim(),
         content: content.trim(),
         isPinned,
+        visibility: isPublic ? AnnouncementVisibility.PUBLIC : AnnouncementVisibility.AUTHENTICATED,
       });
 
       toast.success("Pengumuman berhasil dipublikasikan!");
@@ -51,6 +54,7 @@ export function CreateAnnouncementDialog({ triggerButton }: CreateAnnouncementDi
       setTitle("");
       setContent("");
       setIsPinned(false);
+      setIsPublic(false);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Gagal membuat pengumuman");
     } finally {
@@ -110,15 +114,28 @@ export function CreateAnnouncementDialog({ triggerButton }: CreateAnnouncementDi
             />
           </div>
 
-          <div className="flex items-center space-x-2 pt-2 border-t">
-            <Checkbox
-              id="ann-pin"
-              checked={isPinned}
-              onCheckedChange={(checked) => setIsPinned(!!checked)}
-            />
-            <Label htmlFor="ann-pin" className="text-xs font-normal cursor-pointer">
-              Sematkan pengumuman ini di bagian paling atas (Pin)
-            </Label>
+          <div className="space-y-2 pt-2 border-t">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="ann-pin"
+                checked={isPinned}
+                onCheckedChange={(checked) => setIsPinned(!!checked)}
+              />
+              <Label htmlFor="ann-pin" className="text-xs font-normal cursor-pointer">
+                Sematkan pengumuman ini di bagian paling atas (Pin)
+              </Label>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="ann-public"
+                checked={isPublic}
+                onCheckedChange={(checked) => setIsPublic(!!checked)}
+              />
+              <Label htmlFor="ann-public" className="text-xs font-normal cursor-pointer">
+                Publikasikan ke umum (bisa dibaca pengunjung tanpa login)
+              </Label>
+            </div>
           </div>
 
           <DialogFooter className="pt-3 border-t">

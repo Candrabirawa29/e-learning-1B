@@ -242,17 +242,33 @@ export async function getStudyAnalyticsDashboard(
     });
   }
 
+  const prevDailyMap = new Map<string, { minutes: number; count: number }>();
+  for (const r of prevDailyRows) {
+    prevDailyMap.set(r.day_key, {
+      minutes: Number(r.total_minutes) || 0,
+      count: Number(r.session_count) || 0,
+    });
+  }
+
   const trendChartData: TrendChartPoint[] = [];
   let dayCursor = currentStartKey;
+  let prevCursor = prevStartKey;
   while (dayCursor <= currentEndKey) {
     const rec = currentDailyMap.get(dayCursor);
+    const prevRec = prevDailyMap.get(prevCursor);
+
     trendChartData.push({
       date: dayCursor,
       label: formatWib(dayCursor, "date-short"),
       minutes: rec ? rec.minutes : 0,
       sessionCount: rec ? rec.count : 0,
+      previousDate: prevCursor,
+      previousMinutes: prevRec ? prevRec.minutes : 0,
+      previousSessionCount: prevRec ? prevRec.count : 0,
     });
+
     dayCursor = offsetDateKey(dayCursor, 1);
+    prevCursor = offsetDateKey(prevCursor, 1);
   }
 
   return {
