@@ -50,6 +50,15 @@ export async function loginAction(
   });
 
   if (profile) {
+    // Blokir jika akun telah dinonaktifkan oleh Admin
+    if (!profile.isActive) {
+      await supabase.auth.signOut();
+      return {
+        success: false,
+        error: "Akun Anda telah dinonaktifkan oleh Administrator. Silakan hubungi admin kelas.",
+      };
+    }
+
     await prisma.profile.update({
       where: { id: profile.id },
       data: { lastLoginAt: new Date() },

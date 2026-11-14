@@ -215,6 +215,30 @@ export const getCurrentSession = cache(async (): Promise<CurrentUserSession> => 
 
   const viewAsCookieVal = cookieStore.get(VIEW_AS_COOKIE)?.value;
 
+  // Jika akun dinonaktifkan oleh Admin (dan bukan sesi impersonasi oleh Admin)
+  if (!profile.isActive) {
+    return {
+      user: null,
+      profile: {
+        id: profile.id,
+        email: profile.email,
+        name: profile.name,
+        avatarUrl: profile.avatarUrl,
+        mustChangePassword: profile.mustChangePassword,
+        isActive: false,
+        activatedAt: profile.activatedAt,
+      },
+      membership: null,
+      realRole: null,
+      effectiveRole: "GUEST",
+      assignedCourseIds: [],
+      isViewAs: false,
+      viewAsRole: null,
+      isImpersonating: false,
+      impersonatedUser: null,
+    };
+  }
+
   let effectiveRole: EffectiveRole = realRole;
   let isViewAs = false;
   let viewAsRole: EffectiveRole | null = null;
@@ -267,6 +291,11 @@ export const requireUser = cache(async (): Promise<CurrentUserSession> => {
     redirect("/login");
   }
 
+  // Tolak akses jika akun telah dinonaktifkan
+  if (!session.profile.isActive && !session.isImpersonating) {
+    redirect("/login?error=deactivated");
+  }
+
   if (session.profile.mustChangePassword) {
     redirect("/change-password");
   }
@@ -291,6 +320,12 @@ export const requirePJOrAdmin = cache(async (): Promise<CurrentUserSession> => {
 });
 
 export function assertCanMutate(session: CurrentUserSession) {
+  if (
+    !session.user ||
+    (session.profile && !session.profile.isActive && !session.isImpersonating)
+  ) {
+    throw new Error("Aksi ditolak: Akun Anda telah dinonaktifkan oleh Administrator.");
+  }
   if (session.isViewAs && !session.isImpersonating) {
     throw new Error(
       "Aksi mutation diblokir: Anda sedang berada dalam mode pratinjau (View As). Silakan kembali ke mode Admin untuk melakukan perubahan data."

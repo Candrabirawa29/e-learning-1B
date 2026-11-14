@@ -43,6 +43,10 @@ export async function middleware(request: NextRequest) {
 
   // Jika sudah login dan mencoba membuka /login
   if (pathname === "/login" && user) {
+    // Jika diarahkan karena akun dinonaktifkan, izinkan halaman login terbuka
+    if (request.nextUrl.searchParams.get("error") === "deactivated") {
+      return supabaseResponse;
+    }
     const url = request.nextUrl.clone();
     url.pathname = "/home";
     return NextResponse.redirect(url);

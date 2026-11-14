@@ -78,6 +78,7 @@ export async function updateMemberRoleAction(profileId: string, newRole: Role) {
     },
   });
 
+  revalidatePath("/home", "layout");
   revalidatePath("/home/manage/members");
   return { success: true };
 }
@@ -163,6 +164,7 @@ export async function toggleMemberActiveAction(profileId: string, isActive: bool
     data: { isActive },
   });
 
+  revalidatePath("/home", "layout");
   revalidatePath("/home/manage/members");
   return { success: true };
 }
@@ -413,6 +415,7 @@ export async function updateMemberAction(
     },
   });
 
+  revalidatePath("/home", "layout");
   revalidatePath("/home/manage/members");
   return { success: true, message: `Data anggota ${trimmedName} berhasil diperbarui.` };
 }
