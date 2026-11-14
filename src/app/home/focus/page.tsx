@@ -47,7 +47,7 @@ export default async function FocusPage() {
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Tingkatkan konsentrasi belajar dengan metode Pomodoro atau Stopwatch. Waktu fokus tercatat privat hanya untuk Anda.
+            Tingkatkan konsentrasi belajar dengan metode Pomodoro atau Stopwatch.
           </p>
         </div>
       </div>

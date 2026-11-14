@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Timer,
   BarChart2,
+  Activity,
 } from "lucide-react";
 
 interface SidebarNavProps {
@@ -65,6 +66,7 @@ export function SidebarNav({ session, isMobile = false }: SidebarNavProps) {
   const adminManagementLinks = [
     ...pjManagementLinks,
     { href: "/home/manage/members", label: "Manajemen Anggota", icon: Users },
+    { href: "/home/manage/study-analytics", label: "Monitoring Belajar", icon: Activity },
     { href: "/home/manage/audit", label: "Log Aktivitas & Audit", icon: ShieldCheck },
   ];
 

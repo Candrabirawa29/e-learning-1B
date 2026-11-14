@@ -411,6 +411,8 @@ model FocusSession {
   @@unique([userId, clientSessionId])
   @@index([userId, startedAt])
   @@index([userId, status])
+  @@index([status, startedAt])
+  @@index([startedAt])
   @@index([courseId])
   @@index([taskId])
   @@map("focus_sessions")
