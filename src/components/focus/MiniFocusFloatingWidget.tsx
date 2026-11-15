@@ -6,18 +6,16 @@ import { usePathname } from "next/navigation";
 import { useFocusTimer } from "./FocusTimerContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { formatSecToMMSS, formatOverdueText } from "@/lib/focus/session-logic";
+import { getFocusView } from "@/lib/focus/session-logic";
 import {
   Play,
   Pause,
   ExternalLink,
-  Coffee,
-  Sparkles,
   PlusCircle,
   BellOff,
   PictureInPicture2,
 } from "lucide-react";
-import { FocusMode, FloatMode } from "@prisma/client";
+import { FloatMode } from "@prisma/client";
 
 export function MiniFocusFloatingWidget() {
   const pathname = usePathname();
@@ -28,7 +26,6 @@ export function MiniFocusFloatingWidget() {
     focusSec,
     remainingSec,
     overdueSec,
-    isOverdue,
     isTargetReached,
     isActionPending,
     clockPhase,
@@ -67,23 +64,20 @@ export function MiniFocusFloatingWidget() {
   }
 
   const isFocus = hasActiveSession && !isBreakActive;
-  const isRunning = isFocus
-    ? activeSession?.status === "RUNNING"
-    : breakState.status === "RUNNING";
-
-  const isTargetCompletedFocus = isFocus && activeSession?.mode === FocusMode.FOCUS && isTargetReached;
-
-  const displayTime = isFocus
-    ? clockPhase === "INVALID"
-      ? "Menyinkronkan..."
-      : activeSession?.mode === FocusMode.STOPWATCH
-      ? formatSecToMMSS(focusSec)
-      : isOverdue
-      ? formatOverdueText(overdueSec)
-      : remainingSec === 0 && !isTargetCompletedFocus
-      ? "Menyinkronkan..."
-      : formatSecToMMSS(remainingSec)
-    : formatSecToMMSS(remainingSec);
+  const clockView = getFocusView({
+    mode: activeSession?.mode,
+    status: activeSession?.status,
+    focusSec,
+    plannedSec: activeSession?.plannedSec ?? preferences?.focusDuration ?? 1500,
+    remainingSec,
+    overdueSec,
+    isTargetReached,
+    isBreakActive,
+    breakStatus: breakState.status,
+    breakRemainingSec: remainingSec,
+    hasActiveSession,
+    clockPhase,
+  });
 
   const title = isFocus
     ? activeSession?.course?.name || activeSession?.task?.title || "Sesi Fokus"
@@ -91,128 +85,100 @@ export function MiniFocusFloatingWidget() {
     ? "Istirahat Panjang"
     : "Istirahat Pendek";
 
-  const togglePlayPause = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (isFocus) {
-      if (isRunning) pause();
-      else resume();
-    } else {
-      if (isRunning) pauseBreak();
-      else resumeBreak();
-    }
-  };
-
-  const isAlertMode = isAlarmActive || (isFocus && isTargetReached);
-
   return (
     <aside
       aria-label="Widget Timer Fokus"
       className="fixed bottom-4 right-4 z-50 animate-in fade-in slide-in-from-bottom-3 duration-300"
     >
-      <div
-        className={`flex items-center gap-2.5 backdrop-blur-md border shadow-lg px-3.5 py-2 rounded-full text-xs transition-colors duration-300 ${
-          isAlertMode
-            ? "bg-emerald-600 text-white dark:bg-emerald-700 border-emerald-400 animate-[pulse_2s_cubic-bezier(0.4,0,0.6,1)_infinite] motion-reduce:animate-none"
-            : "bg-background/95 text-foreground border-border"
-        }`}
-      >
+      <div className="flex items-center gap-2.5 backdrop-blur-md border shadow-lg px-3.5 py-2 rounded-full text-xs transition-colors duration-300 bg-background/95 text-foreground border-border">
         <Link
           href="/home/focus"
           className="flex items-center gap-2 text-inherit hover:opacity-90 transition-opacity"
         >
-          <div
-            className={`flex items-center justify-center h-6 w-6 rounded-full shrink-0 ${
-              isAlertMode
-                ? "bg-white/20 text-white"
-                : "bg-primary/10 text-primary"
-            }`}
-          >
-            {isFocus ? (
-              <Sparkles className="h-3.5 w-3.5" />
-            ) : (
-              <Coffee className="h-3.5 w-3.5 text-amber-500" />
-            )}
-          </div>
-
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5 font-bold font-mono text-sm leading-none">
-              <span>{displayTime}</span>
+              {clockView.kind === "TARGET_REACHED" ? (
+                <>
+                  <span className="text-xs font-semibold">{clockView.teksTengah}</span>
+                  <span className="text-xs text-muted-foreground font-mono">
+                    {clockView.durasiTercatat}
+                  </span>
+                </>
+              ) : (
+                <span>{clockView.teksTengah}</span>
+              )}
+
               <Badge
                 variant="outline"
                 className={`text-[9px] px-1 py-0 h-4 border-none font-semibold ${
-                  isAlertMode
-                    ? "bg-white text-emerald-800"
+                  clockView.kind === "TARGET_REACHED"
+                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
                     : isFocus
-                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                    ? clockView.kind === "RUNNING"
+                      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                      : "bg-muted text-muted-foreground"
                     : "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
                 }`}
               >
-                {isAlertMode
+                {clockView.kind === "TARGET_REACHED"
                   ? "Selesai"
                   : isFocus
-                  ? isRunning
+                  ? clockView.kind === "RUNNING"
                     ? "Fokus"
                     : "Jeda"
                   : "Break"}
               </Badge>
             </div>
-            <span
-              className={`text-[10px] line-clamp-1 max-w-[120px] sm:max-w-[160px] ${
-                isAlertMode ? "text-white/80" : "text-muted-foreground"
-              }`}
-            >
+            <span className="text-[10px] line-clamp-1 max-w-[120px] sm:max-w-[160px] text-muted-foreground">
               {title}
             </span>
           </div>
         </Link>
 
         {/* Action Controls */}
-        <div
-          className={`flex items-center gap-1 border-l pl-2 ${
-            isAlertMode ? "border-white/30" : "border-border"
-          }`}
-        >
-          {isAlertMode ? (
-            <>
-              {isAlarmActive && (
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={stopAlarm}
-                  className="h-7 w-7 rounded-full text-white hover:bg-white/20"
-                  title="Hentikan Bunyi Alarm"
-                >
-                  <BellOff className="h-3.5 w-3.5" />
-                </Button>
-              )}
+        <div className="flex items-center gap-1 border-l pl-2 border-border">
+          {isAlarmActive && (
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={stopAlarm}
+              className="h-7 w-7 rounded-full text-foreground hover:bg-muted"
+              title="Hentikan Bunyi Alarm"
+            >
+              <BellOff className="h-3.5 w-3.5" />
+            </Button>
+          )}
 
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={extendFocus}
-                disabled={isActionPending}
-                className="h-7 px-2 text-[11px] font-bold rounded-full bg-white text-emerald-800 hover:bg-white/90 shadow-xs gap-1"
-                title="Lanjut fokus +5 menit"
-              >
-                <PlusCircle className="h-3 w-3" />
-                <span>+5m</span>
-              </Button>
-            </>
+          {clockView.kind === "TARGET_REACHED" ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={extendFocus}
+              disabled={isActionPending}
+              className="h-7 px-2 text-[11px] font-bold rounded-full shadow-xs gap-1"
+              title="Lanjut fokus +5 menit"
+            >
+              <PlusCircle className="h-3 w-3" />
+              <span>+5m</span>
+            </Button>
           ) : (
             <Button
               size="icon"
               variant="ghost"
-              onClick={togglePlayPause}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (clockView.tombolUtama.action === "PAUSE") pause();
+                else if (clockView.tombolUtama.action === "RESUME") resume();
+                else if (clockView.tombolSekunder[0]?.action === "PAUSE_BREAK") pauseBreak();
+                else if (clockView.tombolSekunder[0]?.action === "RESUME_BREAK") resumeBreak();
+              }}
               disabled={isActionPending}
-              className={`h-7 w-7 rounded-full ${
-                isAlertMode
-                  ? "text-white hover:bg-white/20"
-                  : "text-foreground hover:bg-muted"
-              }`}
-              title={isRunning ? "Jeda" : "Lanjutkan"}
+              className="h-7 w-7 rounded-full text-foreground hover:bg-muted"
+              title={clockView.tombolUtama.label}
             >
-              {isRunning ? (
+              {clockView.tombolUtama.action === "PAUSE" ||
+              clockView.tombolSekunder[0]?.action === "PAUSE_BREAK" ? (
                 <Pause className="h-3.5 w-3.5 fill-current" />
               ) : (
                 <Play className="h-3.5 w-3.5 fill-current ml-0.5" />
@@ -226,11 +192,7 @@ export function MiniFocusFloatingWidget() {
               size="icon"
               variant="ghost"
               onClick={() => requestPip()}
-              className={`h-7 w-7 rounded-full ${
-                isAlertMode
-                  ? "text-white hover:bg-white/20"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              }`}
+              className="h-7 w-7 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted"
               title="Melayang (Picture-in-Picture)"
             >
               <PictureInPicture2 className="h-3.5 w-3.5" />
@@ -241,11 +203,7 @@ export function MiniFocusFloatingWidget() {
             <Button
               size="icon"
               variant="ghost"
-              className={`h-7 w-7 rounded-full ${
-                isAlertMode
-                  ? "text-white hover:bg-white/20"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              }`}
+              className="h-7 w-7 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted"
               title="Buka Ruang Fokus"
             >
               <ExternalLink className="h-3.5 w-3.5" />

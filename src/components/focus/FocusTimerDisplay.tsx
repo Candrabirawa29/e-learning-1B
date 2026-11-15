@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useFocusTimer } from "./FocusTimerContext";
+import { useFocusTimer, FocusSummaryData } from "./FocusTimerContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -32,7 +32,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { FocusMode, FocusSessionStatus, CourseKind } from "@prisma/client";
-import { formatSecToMMSS, formatOverdueText } from "@/lib/focus/session-logic";
+import {
+  getFocusView,
+  formatSecToMMSS,
+} from "@/lib/focus/session-logic";
 import { createExtraCourseAction } from "@/actions/courses";
 import { toast } from "sonner";
 import {
@@ -40,7 +43,6 @@ import {
   Pause,
   StopCircle,
   Coffee,
-  Sparkles,
   Volume2,
   VolumeX,
   Bell,
@@ -77,6 +79,151 @@ interface FocusTimerDisplayProps {
   tasks: TaskOption[];
 }
 
+/**
+ * Kartu Ringkasan Sesi Belajar:
+ * - Satu baris: "<status> · <durasi> tercatat" dan tombol Tutup
+ * - Kolom catatan tersimpan otomatis (debounce 800 ms, flush saat blur/pindah layar/tombol utama)
+ * - Tanpa tombol "Simpan Catatan" dan tanpa tombol mulai lain
+ * - Teks tetap ada jika gagal dengan pesan inline "Gagal menyimpan, coba lagi" tanpa toast
+ * - Batas 500 karakter dengan penghitung
+ */
+function SessionSummaryCard({
+  summarySession,
+  onDismiss,
+  onSaveNote,
+}: {
+  summarySession: FocusSummaryData;
+  onDismiss: () => void;
+  onSaveNote: (note: string) => Promise<boolean>;
+}) {
+  const [note, setNote] = React.useState<string>(summarySession.note ?? "");
+  const [saveStatus, setSaveStatus] = React.useState<"IDLE" | "SAVING" | "SAVED" | "ERROR">("IDLE");
+  const noteRef = React.useRef(note);
+  const lastSavedRef = React.useRef<string>(summarySession.note ?? "");
+  const debounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  React.useEffect(() => {
+    noteRef.current = note;
+  }, [note]);
+
+  const flushSave = React.useCallback(
+    async (val?: string) => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+      const textToSave = val !== undefined ? val : noteRef.current;
+      if (textToSave === lastSavedRef.current) return;
+
+      setSaveStatus("SAVING");
+      const ok = await onSaveNote(textToSave);
+      if (ok) {
+        lastSavedRef.current = textToSave;
+        setSaveStatus("SAVED");
+      } else {
+        setSaveStatus("ERROR");
+      }
+    },
+    [onSaveNote]
+  );
+
+  // Flush saat pindah layar / unmount
+  React.useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        flushSave();
+      }
+    };
+  }, [flushSave]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value.slice(0, 500);
+    setNote(val);
+    noteRef.current = val;
+    setSaveStatus("IDLE");
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      flushSave(val);
+    }, 800);
+  };
+
+  const handleBlur = () => {
+    flushSave();
+  };
+
+  const statusLabel =
+    summarySession.status === FocusSessionStatus.COMPLETED
+      ? "Target tercapai"
+      : "Berhenti lebih awal";
+
+  return (
+    <div className="w-full max-w-md mt-6 p-4 bg-muted/30 border rounded-xl space-y-3">
+      {/* Satu baris: <status> · <durasi> tercatat */}
+      <div className="flex items-center justify-between text-xs">
+        <div className="flex items-center gap-2">
+          <Badge
+            className={
+              summarySession.status === FocusSessionStatus.COMPLETED
+                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 text-[10px]"
+                : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-300 text-[10px]"
+            }
+          >
+            {statusLabel}
+          </Badge>
+          <span className="font-semibold text-foreground">
+            {formatSecToMMSS(summarySession.focusSec)} tercatat
+          </span>
+        </div>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onDismiss}
+          className="h-6 text-[10px] text-muted-foreground hover:text-foreground cursor-pointer"
+        >
+          Tutup
+        </Button>
+      </div>
+
+      {/* Kolom Catatan Sesi */}
+      <div className="space-y-1.5">
+        <Textarea
+          placeholder="Catatan sesi (tersimpan otomatis)..."
+          value={note}
+          onChange={handleChange}
+          onBlur={handleBlur}
+          className="text-xs min-h-[55px] bg-background"
+          maxLength={500}
+        />
+        <div className="flex items-center justify-between text-[10px]">
+          <div>
+            {saveStatus === "SAVING" && (
+              <span className="text-muted-foreground">Menyimpan...</span>
+            )}
+            {saveStatus === "SAVED" && (
+              <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                Tersimpan
+              </span>
+            )}
+            {saveStatus === "ERROR" && (
+              <span className="text-destructive font-medium">
+                Gagal menyimpan, coba lagi
+              </span>
+            )}
+          </div>
+          <span className="text-muted-foreground tabular-nums">
+            {note.length}/500
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
   const {
     activeSession,
@@ -85,7 +232,6 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
     focusSec,
     remainingSec,
     overdueSec,
-    isOverdue,
     isTargetReached,
     progressPercent,
     isActionPending,
@@ -119,7 +265,6 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
     saveSummaryNote,
   } = useFocusTimer();
 
-  const [noteInput, setNoteInput] = React.useState<string>("");
   const [isEnding, setIsEnding] = React.useState<boolean>(false);
   const [isDiscardDialogOpen, setIsDiscardDialogOpen] = React.useState<boolean>(false);
 
@@ -129,9 +274,19 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
   const [newTopicName, setNewTopicName] = React.useState<string>("");
   const [isCreatingTopic, setIsCreatingTopic] = React.useState<boolean>(false);
 
+  // Petunjuk perubahan konteks sesi aktif: hanya tampil beberapa detik (4 detik) setelah diubah
+  const [showContextChangeHint, setShowContextChangeHint] = React.useState<boolean>(false);
+  const contextHintTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+
   React.useEffect(() => {
     setCourseList(courses);
   }, [courses]);
+
+  React.useEffect(() => {
+    return () => {
+      if (contextHintTimerRef.current) clearTimeout(contextHintTimerRef.current);
+    };
+  }, []);
 
   const regularCourses = React.useMemo(
     () => courseList.filter((c) => c.kind !== "EXTRA"),
@@ -141,6 +296,21 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
     () => courseList.filter((c) => c.kind === "EXTRA"),
     [courseList]
   );
+
+  const handleContextChange = async (data: {
+    courseId?: string | null;
+    taskId?: string | null;
+    mode?: FocusMode;
+  }) => {
+    await changeContext(data);
+    if (activeSession && activeSession.status === FocusSessionStatus.RUNNING) {
+      setShowContextChangeHint(true);
+      if (contextHintTimerRef.current) clearTimeout(contextHintTimerRef.current);
+      contextHintTimerRef.current = setTimeout(() => {
+        setShowContextChangeHint(false);
+      }, 4000);
+    }
+  };
 
   const handleCreateTopic = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -157,10 +327,9 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
           kind: res.course.kind,
         };
         setCourseList((prev) => [...prev, newCourse]);
-        await changeContext({ courseId: newCourse.id, taskId: null });
+        await handleContextChange({ courseId: newCourse.id, taskId: null });
         setNewTopicName("");
         setIsAddTopicOpen(false);
-        toast.success(`Topik mandiri "${name}" berhasil ditambahkan.`);
       }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Gagal menambahkan topik.");
@@ -169,38 +338,23 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
     }
   };
 
-  // Sync note input with active session note or summary note
-  React.useEffect(() => {
-    if (summarySession?.note) {
-      setNoteInput(summarySession.note);
-    } else if (activeSession?.note) {
-      setNoteInput(activeSession.note);
-    } else {
-      setNoteInput("");
-    }
-  }, [summarySession?.id, summarySession?.note, activeSession?.id, activeSession?.note]);
-
   const isFocus = Boolean(activeSession) && !isBreakActive;
-  const isRunning = isFocus
-    ? activeSession?.status === FocusSessionStatus.RUNNING
-    : isBreakActive && breakState.status === "RUNNING";
 
-  const isTargetCompletedFocus =
-    isFocus && activeSession?.mode === FocusMode.FOCUS && isTargetReached;
-
-  const displayTime = isFocus
-    ? clockPhase === "INVALID"
-      ? "Menyinkronkan..."
-      : activeSession?.mode === FocusMode.STOPWATCH
-      ? formatSecToMMSS(focusSec)
-      : isOverdue
-      ? formatOverdueText(overdueSec)
-      : remainingSec === 0 && !isTargetCompletedFocus
-      ? "Menyinkronkan..."
-      : formatSecToMMSS(remainingSec)
-    : isBreakActive
-    ? formatSecToMMSS(remainingSec)
-    : formatSecToMMSS(preferences?.focusDuration ?? 1500);
+  // Single Source of State Mapping via getFocusView
+  const clockView = getFocusView({
+    mode: activeSession?.mode,
+    status: activeSession?.status,
+    focusSec,
+    plannedSec: activeSession?.plannedSec ?? preferences?.focusDuration ?? 1500,
+    remainingSec,
+    overdueSec,
+    isTargetReached,
+    isBreakActive,
+    breakStatus: breakState.status,
+    breakRemainingSec: remainingSec,
+    hasActiveSession: Boolean(activeSession),
+    clockPhase,
+  });
 
   // SVG Progress Ring
   const strokeWidth = 8;
@@ -217,25 +371,21 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
     ? tasks.filter((t) => !t.courseId || t.courseId === selectedCourseId)
     : tasks;
 
-  const handleStartBreakManually = () => {
-    stopAlarm();
-    const longInterval = preferences?.longBreakInterval || 4;
-    const isLongBreak = (completedCycles + 1) % longInterval === 0;
-    startBreak(isLongBreak ? "LONG_BREAK" : "SHORT_BREAK");
-  };
-
   const handleEndSession = async () => {
     setIsEnding(true);
     try {
-      await endSession(noteInput.trim() || undefined);
+      await endSession();
     } finally {
       setIsEnding(false);
     }
   };
 
-  const handleSaveNote = async () => {
-    if (!noteInput.trim()) return;
-    await saveSummaryNote(noteInput.trim());
+  const handleStartBreakFromTargetReached = async () => {
+    stopAlarm();
+    await endSession();
+    const longInterval = preferences?.longBreakInterval || 4;
+    const isLongBreak = (completedCycles + 1) % longInterval === 0;
+    startBreak(isLongBreak ? "LONG_BREAK" : "SHORT_BREAK");
   };
 
   return (
@@ -249,8 +399,7 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
       {/* Top Bar: Sound, Notification, PiP & Cycle counters */}
       <div className="w-full flex items-center justify-between pb-4 border-b text-xs mb-5">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className="text-[11px] font-medium gap-1 px-2.5 py-0.5">
-            <Sparkles className="h-3 w-3 text-primary" />
+          <Badge variant="outline" className="text-[11px] font-medium px-2.5 py-0.5">
             <span>Siklus Hari Ini: #{completedCycles}</span>
           </Badge>
 
@@ -260,7 +409,7 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
             </Badge>
           )}
 
-          {isFocus && isTargetCompletedFocus && (
+          {clockView.kind === "TARGET_REACHED" && (
             <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 text-[10px]">
               Target Tercapai
             </Badge>
@@ -340,7 +489,7 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
             />
             <DropdownMenuContent align="center" className="w-60 max-h-72 overflow-y-auto">
               <DropdownMenuItem
-                onClick={() => changeContext({ courseId: null })}
+                onClick={() => handleContextChange({ courseId: null })}
                 className="text-xs"
               >
                 Tanpa Mata Kuliah
@@ -355,7 +504,7 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
                   {regularCourses.map((c) => (
                     <DropdownMenuItem
                       key={c.id}
-                      onClick={() => changeContext({ courseId: c.id })}
+                      onClick={() => handleContextChange({ courseId: c.id })}
                       className="text-xs"
                     >
                       <span className="truncate">{c.name}</span>
@@ -371,7 +520,7 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
               {extraCourses.map((c) => (
                 <DropdownMenuItem
                   key={c.id}
-                  onClick={() => changeContext({ courseId: c.id, taskId: null })}
+                  onClick={() => handleContextChange({ courseId: c.id, taskId: null })}
                   className="text-xs"
                 >
                   <span className="truncate">{c.name}</span>
@@ -413,7 +562,7 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
                   Pilih Tugas Terkait
                 </DropdownMenuLabel>
                 <DropdownMenuItem
-                  onClick={() => changeContext({ taskId: null })}
+                  onClick={() => handleContextChange({ taskId: null })}
                   className="text-xs"
                 >
                   Tanpa Tugas
@@ -422,7 +571,7 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
                 {availableTasks.map((t) => (
                   <DropdownMenuItem
                     key={t.id}
-                    onClick={() => changeContext({ taskId: t.id })}
+                    onClick={() => handleContextChange({ taskId: t.id })}
                     className="text-xs"
                   >
                     <span className="truncate">{t.title}</span>
@@ -451,13 +600,13 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
             />
             <DropdownMenuContent align="center" className="w-40">
               <DropdownMenuItem
-                onClick={() => changeContext({ mode: FocusMode.FOCUS })}
+                onClick={() => handleContextChange({ mode: FocusMode.FOCUS })}
                 className="text-xs"
               >
                 Pomodoro (Fokus)
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() => changeContext({ mode: FocusMode.STOPWATCH })}
+                onClick={() => handleContextChange({ mode: FocusMode.STOPWATCH })}
                 className="text-xs"
               >
                 Stopwatch
@@ -466,30 +615,27 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
           </DropdownMenu>
         </div>
 
-        {isFocus && (
-          <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+        {/* Petunjuk perubahan konteks sesi aktif: tampil 4 detik lalu menghilang */}
+        {showContextChangeHint && (
+          <span className="text-[10px] text-muted-foreground flex items-center gap-1 transition-opacity">
             <Info className="h-2.5 w-2.5" />
             Perubahan konteks berlaku untuk seluruh sesi aktif ini
           </span>
         )}
       </div>
 
-      {/* Alarm Alert Banner */}
+      {/* Alarm Alert Bar: Satu bar tipis "Alarm berbunyi" dengan tombol "Matikan bunyi", tanpa emoji & tanpa ulang pesan */}
       {isAlarmActive && (
-        <div className="w-full max-w-md mb-4 p-3 bg-emerald-600 text-white rounded-xl flex items-center justify-between gap-3 shadow-md animate-[pulse_2s_cubic-bezier(0.4,0,0.6,1)_infinite] motion-reduce:animate-none">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 shrink-0" />
-            <span className="text-xs font-semibold">
-              Target tercapai! Waktu fokus selesai 🎉
-            </span>
-          </div>
+        <div className="w-full max-w-md mb-3 py-1.5 px-3 bg-muted/80 border rounded-lg flex items-center justify-between text-xs">
+          <span className="font-medium text-foreground">Alarm berbunyi</span>
           <Button
             size="sm"
+            variant="outline"
             onClick={stopAlarm}
-            className="h-7 text-xs bg-white text-emerald-800 hover:bg-zinc-100 font-bold shrink-0 cursor-pointer"
+            className="h-6 text-xs px-2.5 font-medium cursor-pointer"
           >
             <BellOff className="h-3 w-3 mr-1" />
-            Matikan Bunyi
+            Matikan bunyi
           </Button>
         </div>
       )}
@@ -510,12 +656,10 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
             cy="130"
             r={radius}
             className={`transition-all duration-500 ease-in-out ${
-              isAlarmActive || isTargetCompletedFocus
+              clockView.kind === "TARGET_REACHED"
                 ? "stroke-emerald-600"
                 : isBreakActive
                 ? "stroke-amber-500"
-                : isOverdue
-                ? "stroke-rose-500"
                 : "stroke-primary"
             }`}
             strokeWidth={strokeWidth}
@@ -527,313 +671,156 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
         </svg>
 
         {/* Central Display */}
-        <div className="absolute flex flex-col items-center justify-center text-center px-4">
-          <span
-            className={`font-mono text-4xl sm:text-5xl font-black tracking-tight tabular-nums ${
-              isOverdue ? "text-rose-600 dark:text-rose-400" : "text-foreground"
-            }`}
-          >
-            {displayTime}
-          </span>
-
-          <div className="mt-1 flex flex-col items-center">
-            {isFocus ? (
-              <span className="text-xs font-medium text-muted-foreground">
-                {isTargetCompletedFocus
-                  ? "Target Tercapai!"
-                  : isRunning
-                  ? activeSession?.mode === FocusMode.STOPWATCH
-                    ? "Stopwatch Berjalan"
-                    : "Sedang Fokus Belajar"
-                  : "Sesi Dijeda"}
+        <div className="absolute flex flex-col items-center justify-center text-center px-4 max-w-[210px] overflow-hidden select-none">
+          {clockView.kind === "TARGET_REACHED" ? (
+            <>
+              {/* Teks tengah: "Target tercapai" (ukuran lebih kecil) dan "<durasi> tercatat", tidak membungkus / keluar lingkaran */}
+              <span
+                className="font-bold tracking-tight text-foreground whitespace-nowrap"
+                style={{ fontSize: "clamp(1.05rem, 3.2vw, 1.45rem)" }}
+              >
+                {clockView.teksTengah}
               </span>
-            ) : isBreakActive ? (
-              <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                {isRunning ? "Waktu Istirahat" : "Istirahat Dijeda"}
+              <span
+                className="font-semibold font-mono text-muted-foreground whitespace-nowrap mt-1"
+                style={{ fontSize: "clamp(0.95rem, 2.5vw, 1.25rem)" }}
+              >
+                {clockView.durasiTercatat}
               </span>
-            ) : (
-              <span className="text-xs text-muted-foreground font-medium">
-                Siap untuk Belajar
+            </>
+          ) : (
+            <>
+              <span className="font-mono text-4xl sm:text-5xl font-black tracking-tight tabular-nums text-foreground">
+                {clockView.teksTengah}
               </span>
-            )}
-          </div>
 
-          {isFocus && !isTargetCompletedFocus && (
-            <div className="text-[11px] text-muted-foreground mt-1 font-mono">
-              Akumulasi: {formatSecToMMSS(focusSec)}
-            </div>
-          )}
+              <div className="mt-1 flex flex-col items-center">
+                <span className="text-xs font-medium text-muted-foreground">
+                  {clockView.pesan}
+                </span>
+              </div>
 
-          {isOverdue && activeSession && (
-            <div className="text-[10px] text-muted-foreground mt-1 leading-tight">
-              Akumulasi dikunci di {Math.round(activeSession.plannedSec / 60)}m (waktu lewat tidak dihitung)
-            </div>
+              {clockView.teksKecil && (
+                <div className="text-[11px] text-muted-foreground mt-1 font-mono">
+                  {clockView.teksKecil}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
 
-      {/* Controls Bar */}
-      <div className="flex flex-wrap items-center justify-center gap-2.5 mt-4 w-full max-w-md">
-        {/* State 1: No active session & No break -> Direct 1-Click Start Focus */}
-        {!isFocus && !isBreakActive && (
+      {/* Waktu sejak target: kecil dan netral (warna muted, bukan merah) di BAWAH lingkaran */}
+      {clockView.teksOverdue && (
+        <div className="text-xs text-muted-foreground mt-1 mb-2 text-center select-none font-medium">
+          {clockView.teksOverdue}
+        </div>
+      )}
+
+      {/* Controls Bar: 1 aksi 1 tombol, tanpa tombol duplikat */}
+      <div className="flex flex-col items-center justify-center gap-2 mt-4 w-full max-w-md">
+        <div className="flex flex-wrap items-center justify-center gap-2.5">
+          {/* Tombol Utama (Tepat 1) */}
           <Button
-            size="lg"
-            onClick={() => startFocus()}
-            className="w-full sm:w-auto px-8 py-6 text-sm font-semibold rounded-full gap-2 shadow-md hover:shadow-lg transition-all cursor-pointer"
+            size={clockView.kind === "READY" ? "lg" : "default"}
+            onClick={() => {
+              if (clockView.tombolUtama.action === "START") startFocus();
+              else if (clockView.tombolUtama.action === "PAUSE") pause();
+              else if (clockView.tombolUtama.action === "RESUME") resume();
+              else if (clockView.tombolUtama.action === "START_BREAK") handleStartBreakFromTargetReached();
+              else if (clockView.tombolUtama.action === "SKIP_BREAK") skipBreak();
+              else if (clockView.tombolUtama.action === "NEXT_CYCLE") startFocus();
+            }}
+            disabled={isActionPending}
+            className={`font-semibold rounded-full gap-2 cursor-pointer ${
+              clockView.kind === "READY"
+                ? "px-8 py-6 text-sm shadow-md hover:shadow-lg"
+                : "px-6 py-5 text-xs"
+            }`}
           >
-            <Play className="h-4 w-4 fill-current" />
-            Mulai Sesi Fokus
+            {clockView.tombolUtama.action === "START" && <Play className="h-4 w-4 fill-current" />}
+            {clockView.tombolUtama.action === "PAUSE" && <Pause className="h-4 w-4" />}
+            {clockView.tombolUtama.action === "RESUME" && <Play className="h-4 w-4 fill-current" />}
+            {clockView.tombolUtama.action === "START_BREAK" && <Coffee className="h-4 w-4" />}
+            {clockView.tombolUtama.action === "SKIP_BREAK" && <FastForward className="h-4 w-4" />}
+            {clockView.tombolUtama.action === "NEXT_CYCLE" && <Play className="h-4 w-4 fill-current" />}
+            <span>{clockView.tombolUtama.label}</span>
           </Button>
-        )}
 
-        {/* State 2: Target Tercapai on Focus -> Layar Selesai Options */}
-        {isTargetCompletedFocus && (
-          <div className="w-full flex flex-col items-center gap-3 bg-muted/40 p-4 border rounded-xl">
-            <div className="text-center">
-              <h3 className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                Fokus Selesai! 🎉
-              </h3>
-              <p className="text-[11px] text-muted-foreground">
-                Target tercapai. Silakan mulai istirahat atau tambah waktu fokus.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-center gap-2 w-full">
-              <Button
-                size="sm"
-                onClick={handleStartBreakManually}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs gap-1.5 rounded-full px-4 cursor-pointer"
-              >
-                <Coffee className="h-3.5 w-3.5" />
-                Mulai Istirahat
-              </Button>
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={extendFocus}
-                disabled={isActionPending}
-                className="text-xs gap-1.5 rounded-full px-4 cursor-pointer"
-              >
-                <PlusCircle className="h-3.5 w-3.5 text-primary" />
-                Lanjut Fokus +5 Menit
-              </Button>
-
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={handleEndSession}
-                disabled={isEnding || isActionPending}
-                className="text-xs gap-1.5 rounded-full px-4 cursor-pointer"
-              >
-                <StopCircle className="h-3.5 w-3.5" />
-                Akhiri Sesi
-              </Button>
-
-              {/* Overflow: Discard */}
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
-                      <MoreVertical className="h-4 w-4 text-muted-foreground" />
-                    </Button>
-                  }
-                />
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    onClick={() => setIsDiscardDialogOpen(true)}
-                    className="text-xs text-rose-600 focus:text-rose-600 cursor-pointer"
-                  >
-                    <Trash2 className="h-3.5 w-3.5 mr-2" />
-                    Buang Sesi Ini
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-        )}
-
-        {/* State 3: Focus Session Running / Paused (Normal) */}
-        {isFocus && !isTargetCompletedFocus && (
-          <div className="flex items-center gap-2">
-            {isRunning ? (
-              <Button
-                size="lg"
-                variant="outline"
-                onClick={pause}
-                disabled={isActionPending}
-                className="px-6 py-5 text-xs font-semibold rounded-full gap-2 cursor-pointer"
-              >
-                <Pause className="h-4 w-4" />
-                Jeda
-              </Button>
-            ) : (
-              <Button
-                size="lg"
-                onClick={resume}
-                disabled={isActionPending}
-                className="px-6 py-5 text-xs font-semibold rounded-full gap-2 cursor-pointer"
-              >
-                <Play className="h-4 w-4 fill-current" />
-                Lanjut
-              </Button>
-            )}
-
+          {/* Tombol Sekunder */}
+          {clockView.tombolSekunder.map((btn) => (
             <Button
-              size="lg"
+              key={btn.action}
+              size="default"
               variant="secondary"
-              onClick={handleEndSession}
+              onClick={() => {
+                if (btn.action === "END") handleEndSession();
+                else if (btn.action === "EXTEND") extendFocus();
+                else if (btn.action === "PAUSE_BREAK") pauseBreak();
+                else if (btn.action === "RESUME_BREAK") resumeBreak();
+              }}
               disabled={isEnding || isActionPending}
-              className="px-6 py-5 text-xs font-semibold rounded-full gap-2 cursor-pointer"
+              className="px-5 py-5 text-xs font-semibold rounded-full gap-1.5 cursor-pointer"
             >
-              <StopCircle className="h-4 w-4 text-rose-500" />
-              Akhiri
+              {btn.action === "END" && <StopCircle className="h-4 w-4 text-rose-500" />}
+              {btn.action === "EXTEND" && <PlusCircle className="h-4 w-4 text-primary" />}
+              {btn.action === "PAUSE_BREAK" && <Pause className="h-4 w-4" />}
+              {btn.action === "RESUME_BREAK" && <Play className="h-4 w-4 fill-current" />}
+              <span>{btn.label}</span>
             </Button>
+          ))}
 
-            {/* Overflow: Buang Sesi */}
+          {/* Menu Lainnya (Buang sesi) */}
+          {clockView.menuLainnya.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
-                  <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full">
+                  <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full cursor-pointer">
                     <MoreVertical className="h-4 w-4 text-muted-foreground" />
                   </Button>
                 }
               />
               <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={() => setIsDiscardDialogOpen(true)}
-                  className="text-xs text-rose-600 focus:text-rose-600 cursor-pointer"
-                >
-                  <Trash2 className="h-3.5 w-3.5 mr-2" />
-                  Buang Sesi Ini
-                </DropdownMenuItem>
+                {clockView.menuLainnya.map((m) => (
+                  <DropdownMenuItem
+                    key={m.action}
+                    onClick={() => {
+                      if (m.action === "DISCARD") setIsDiscardDialogOpen(true);
+                    }}
+                    className="text-xs text-rose-600 focus:text-rose-600 cursor-pointer"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-2" />
+                    <span>{m.label}</span>
+                  </DropdownMenuItem>
+                ))}
               </DropdownMenuContent>
             </DropdownMenu>
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* State 4: Break Active */}
-        {isBreakActive && (
-          <div className="flex items-center gap-2">
-            {isRunning ? (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={pauseBreak}
-                className="text-xs rounded-full gap-1.5 px-4 cursor-pointer"
-              >
-                <Pause className="h-3.5 w-3.5" />
-                Jeda Istirahat
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                onClick={resumeBreak}
-                className="text-xs rounded-full gap-1.5 px-4 cursor-pointer"
-              >
-                <Play className="h-3.5 w-3.5 fill-current" />
-                Lanjut Istirahat
-              </Button>
-            )}
-
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={skipBreak}
-              className="text-xs rounded-full gap-1.5 px-4 cursor-pointer"
-            >
-              <FastForward className="h-3.5 w-3.5" />
-              Lewati Istirahat
-            </Button>
-
-            <Button
-              size="sm"
-              onClick={() => {
-                skipBreak();
-                startFocus();
-              }}
-              className="text-xs rounded-full gap-1.5 px-4 font-semibold cursor-pointer"
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              Mulai Siklus Berikutnya
-            </Button>
-          </div>
+        {/* Teks Kecil aksi pada Target tercapai: "Selesai tanpa istirahat" */}
+        {clockView.teksKecil && clockView.kind === "TARGET_REACHED" && (
+          <button
+            type="button"
+            onClick={handleEndSession}
+            disabled={isEnding || isActionPending}
+            className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-4 cursor-pointer mt-1"
+          >
+            {clockView.teksKecil}
+          </button>
         )}
       </div>
 
-      {/* Summary Box After Sesi Berakhir (Catatan Opsional & Next Cycle) */}
+      {/* Kartu Ringkasan Sesi Setelah Akhiri */}
       {summarySession && !isFocus && (
-        <div className="w-full max-w-md mt-6 p-4 bg-muted/30 border rounded-xl space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Badge
-                className={
-                  summarySession.status === FocusSessionStatus.COMPLETED
-                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 text-[10px]"
-                    : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-300 text-[10px]"
-                }
-              >
-                {summarySession.status === FocusSessionStatus.COMPLETED
-                  ? "Target tercapai"
-                  : "Berhenti lebih awal"}
-              </Badge>
-              <span className="text-xs font-semibold">
-                {formatSecToMMSS(summarySession.focusSec)} tercatat
-              </span>
-            </div>
-
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={dismissSummary}
-              className="h-6 text-[10px] text-muted-foreground"
-            >
-              Tutup
-            </Button>
-          </div>
-
-          {/* Optional Note Field */}
-          <div className="space-y-1.5">
-            <span className="text-[11px] font-medium text-muted-foreground">
-              Catatan Sesi (Opsional):
-            </span>
-            <Textarea
-              placeholder="Apa yang berhasil dipelajari dalam sesi ini?"
-              value={noteInput}
-              onChange={(e) => setNoteInput(e.target.value)}
-              className="text-xs min-h-[50px] bg-background"
-              maxLength={500}
-            />
-            <div className="flex justify-end">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSaveNote}
-                className="h-7 text-xs"
-              >
-                Simpan Catatan
-              </Button>
-            </div>
-          </div>
-
-          {/* 1-Click Start Next Cycle */}
-          <div className="pt-1">
-            <Button
-              size="sm"
-              onClick={() => {
-                dismissSummary();
-                startFocus();
-              }}
-              className="w-full text-xs font-semibold gap-1.5 rounded-full cursor-pointer"
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              Mulai Siklus Berikutnya
-            </Button>
-          </div>
-        </div>
+        <SessionSummaryCard
+          summarySession={summarySession}
+          onDismiss={dismissSummary}
+          onSaveNote={saveSummaryNote}
+        />
       )}
 
-      {/* Confirm Discard Session Dialog */}
+      {/* Dialog Konfirmasi Buang Sesi */}
       <AlertDialog open={isDiscardDialogOpen} onOpenChange={setIsDiscardDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

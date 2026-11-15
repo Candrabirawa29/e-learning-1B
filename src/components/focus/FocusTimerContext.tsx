@@ -97,7 +97,7 @@ interface FocusTimerContextType {
   // Summary state after session ends
   summarySession: FocusSummaryData | null;
   dismissSummary: () => void;
-  saveSummaryNote: (note: string) => Promise<void>;
+  saveSummaryNote: (note: string) => Promise<boolean>;
 
   // Session Actions
   startFocus: (overrides?: {
@@ -603,11 +603,6 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
         status: "COMPLETED",
         accumulatedSec: prev.plannedSec,
       }));
-
-      // Jika autoStartNextFocus aktif, mulai sesi fokus berikutnya secara otomatis
-      if (preferences?.autoStartNextFocus) {
-        startFocusRef.current().catch(() => {});
-      }
     }
   }, [
     isBreakActive,
@@ -615,7 +610,6 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
     breakState.status,
     soundEnabled,
     preferences?.soundVolume,
-    preferences?.autoStartNextFocus,
     triggerDesktopNotification,
   ]);
 
@@ -626,8 +620,6 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
       const granted = permission === "granted";
       setNotificationsEnabledState(granted);
       localStorage.setItem(STORAGE_KEY_NOTIF, String(granted));
-      if (granted) toast.success("Notifikasi sistem diaktifkan");
-      else toast.info("Izin notifikasi belum diberikan");
       return granted;
     }
     return false;
@@ -814,7 +806,6 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
         const res = await updateActiveSessionContextAction(activeSession.id, data);
         if (res.success && res.session) {
           setActiveSession(res.session);
-          toast.info("Perubahan konteks berlaku untuk sesi aktif ini");
         }
       } catch (err: unknown) {
         toast.error(err instanceof Error ? err.message : "Gagal memperbarui konteks sesi");
@@ -850,7 +841,6 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
       lastResumedAt: Date.now(),
       status: "RUNNING",
     });
-    toast.success(`Waktu ${type === "LONG_BREAK" ? "istirahat panjang" : "istirahat pendek"} dimulai`);
   };
 
   // Action: Start Focus
@@ -898,7 +888,6 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
         reconcileSession(res.session, res.version);
         setSummarySession(null);
         alarmTriggeredSessionIdRef.current = null;
-        toast.success("Sesi fokus berhasil dimulai!");
         return true;
       }
       return false;
@@ -943,7 +932,6 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
       if (res.success && res.session) {
         reconcileSession(res.session, res.version);
       }
-      toast.info("Sesi fokus dijeda");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Gagal menjeda sesi");
       await refreshActiveSession();
@@ -980,7 +968,6 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
       if (res.success && res.session) {
         reconcileSession(res.session, res.version);
       }
-      toast.success("Sesi fokus dilanjutkan");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Gagal melanjutkan sesi");
       await refreshActiveSession();
@@ -1000,7 +987,6 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
       if (res.success && res.session) {
         reconcileSession(res.session, res.version);
         alarmTriggeredSessionIdRef.current = null;
-        toast.success("Sesi fokus diperpanjang +5 menit!");
       }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Gagal memperpanjang sesi");
@@ -1022,7 +1008,6 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
       if (res.action === "DISCARDED") {
         reconcileSession(null);
         alarmTriggeredSessionIdRef.current = null;
-        toast.info("Terlalu singkat, tidak dicatat");
         return { action: "DISCARDED" };
       }
 
@@ -1049,19 +1034,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
       const todayCycles = await getTodayCompletedCyclesAction();
       setCompletedCycles(todayCycles);
 
-      // Auto start break jika diaktifkan di preferensi
-      if (preferences?.autoStartBreak ?? true) {
-        const longInterval = preferences?.longBreakInterval || 4;
-        const isLongBreak = todayCycles > 0 && todayCycles % longInterval === 0;
-        startBreak(isLongBreak ? "LONG_BREAK" : "SHORT_BREAK");
-      }
-
-      toast.success(
-        res.status === FocusSessionStatus.COMPLETED
-          ? "Target tercapai! Sesi berhasil dicatat."
-          : "Sesi dihentikan lebih awal dan durasi fokus berhasil dicatat."
-      );
-
+      // "Akhiri" menyelesaikan sesi dan kembali ke Siap tanpa istirahat otomatis
       return { action: "SAVED", status: res.status };
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Gagal mengakhiri sesi");
@@ -1081,7 +1054,6 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
       reconcileSession(null);
       setSummarySession(null);
       alarmTriggeredSessionIdRef.current = null;
-      toast.info("Sesi telah dibuang dan tidak dicatat");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Gagal membuang sesi");
     } finally {
@@ -1136,18 +1108,20 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
       lastResumedAt: null,
       status: "COMPLETED",
     });
-    toast.info("Waktu istirahat dilewati");
   };
 
-  // Action: Save Summary Note
-  const saveSummaryNote = async (note: string) => {
-    if (!summarySession) return;
+  // Action: Save Summary Note (Auto-save tanpa menaikkan sessionVersion atau toast)
+  const saveSummaryNote = async (note: string): Promise<boolean> => {
+    if (!summarySession) return false;
     try {
-      await updateSessionNoteAction(summarySession.id, note);
-      setSummarySession((prev) => (prev ? { ...prev, note } : null));
-      toast.success("Catatan berhasil disimpan!");
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Gagal menyimpan catatan");
+      const res = await updateSessionNoteAction(summarySession.id, note);
+      if (res && res.success) {
+        setSummarySession((prev) => (prev ? { ...prev, note } : null));
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
     }
   };
 

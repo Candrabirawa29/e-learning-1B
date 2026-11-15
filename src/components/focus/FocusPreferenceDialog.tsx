@@ -289,49 +289,6 @@ export function FocusPreferenceDialog({
             </p>
           </div>
 
-          {/* Otomatisasi Alur Siklus */}
-          <div className="space-y-2.5 p-3 bg-muted/40 rounded-xl border">
-            <span className="font-semibold text-xs text-foreground block">
-              Otomatisasi Alur Siklus Belajar
-            </span>
-
-            <div className="flex items-start gap-2.5">
-              <input
-                id="pref-auto-break"
-                type="checkbox"
-                checked={autoStartBreak}
-                onChange={(e) => setAutoStartBreak(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-              />
-              <div className="space-y-0.5">
-                <Label htmlFor="pref-auto-break" className="text-xs font-medium cursor-pointer">
-                  Mulai istirahat otomatis saat fokus selesai
-                </Label>
-                <p className="text-[10px] text-muted-foreground">
-                  Timer istirahat langsung berjalan setelah alarm akhir sesi selesai atau dikonfirmasi.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-2.5 pt-1">
-              <input
-                id="pref-auto-next-focus"
-                type="checkbox"
-                checked={autoStartNextFocus}
-                onChange={(e) => setAutoStartNextFocus(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-              />
-              <div className="space-y-0.5">
-                <Label htmlFor="pref-auto-next-focus" className="text-xs font-medium cursor-pointer">
-                  Mulai sesi fokus berikutnya otomatis saat istirahat habis
-                </Label>
-                <p className="text-[10px] text-muted-foreground">
-                  Melanjutkan siklus fokus baru secara otomatis dengan mata kuliah dan tugas yang sama.
-                </p>
-              </div>
-            </div>
-          </div>
-
           {/* Target Mingguan, Ambang Hari Aktif, & Saran Target */}
           <div className="space-y-3 p-3 bg-muted/40 rounded-xl border">
             <span className="font-semibold text-xs text-foreground block">

@@ -428,3 +428,197 @@ export function calculateCompletionRatio(completedCount: number, stoppedEarlyCou
   if (total <= 0) return 100;
   return Math.round((completedCount / total) * 100);
 }
+
+export type FocusStateKind =
+  | "READY"
+  | "RUNNING"
+  | "PAUSED"
+  | "TARGET_REACHED"
+  | "BREAK"
+  | "BREAK_OVERDUE";
+
+export type FocusActionType =
+  | "START"
+  | "PAUSE"
+  | "RESUME"
+  | "END"
+  | "DISCARD"
+  | "START_BREAK"
+  | "EXTEND"
+  | "SKIP_BREAK"
+  | "PAUSE_BREAK"
+  | "RESUME_BREAK"
+  | "NEXT_CYCLE"
+  | "END_WITHOUT_BREAK";
+
+export interface FocusActionButton {
+  action: FocusActionType;
+  label: string;
+}
+
+export interface FocusViewStateInput {
+  kind?: FocusStateKind;
+  mode?: "FOCUS" | "STOPWATCH" | null;
+  status?: "RUNNING" | "PAUSED" | "COMPLETED" | "STOPPED_EARLY" | "CANCELLED" | string;
+  focusSec?: number;
+  plannedSec?: number;
+  remainingSec?: number;
+  overdueSec?: number;
+  isTargetReached?: boolean;
+  isBreakActive?: boolean;
+  breakStatus?: "RUNNING" | "PAUSED" | "COMPLETED" | string;
+  breakRemainingSec?: number;
+  hasActiveSession?: boolean;
+  clockPhase?: FocusClockPhase;
+}
+
+export interface FocusViewResult {
+  kind: FocusStateKind;
+  pesan: string;
+  teksTengah: string;
+  durasiTercatat?: string;
+  teksKecil: string;
+  teksOverdue: string | null;
+  tombolUtama: FocusActionButton;
+  tombolSekunder: FocusActionButton[];
+  menuLainnya: FocusActionButton[];
+}
+
+/**
+ * Menyelesaikan FocusStateKind dari input state timer.
+ */
+export function resolveFocusStateKind(input: FocusViewStateInput): FocusStateKind {
+  if (input.kind) return input.kind;
+
+  if (input.isBreakActive) {
+    const breakRemaining = input.breakRemainingSec ?? input.remainingSec ?? 0;
+    if (breakRemaining <= 0 || input.breakStatus === "COMPLETED") {
+      return "BREAK_OVERDUE";
+    }
+    return "BREAK";
+  }
+
+  const hasSession = input.hasActiveSession ?? (input.status !== undefined && input.status !== null);
+  if (!hasSession) {
+    return "READY";
+  }
+
+  const isStopwatch = (input.mode ?? "FOCUS") === "STOPWATCH";
+  if (!isStopwatch && (input.isTargetReached || input.clockPhase === "TARGET_REACHED")) {
+    return "TARGET_REACHED";
+  }
+
+  if (input.status === "RUNNING") {
+    return "RUNNING";
+  }
+
+  if (input.status === "PAUSED") {
+    return "PAUSED";
+  }
+
+  return "READY";
+}
+
+/**
+ * Fungsi Murni: getFocusView(state)
+ * Satu-satunya sumber pemetaan keadaan ke elemen (pesan, teks tengah, teks kecil, tombol utama,
+ * tombol sekunder, dan menu lainnya) yang dipakai layar utama, jendela PiP, dan widget mini.
+ *
+ * Pemetaan Keadaan:
+ * - Siap: utama "Mulai" (konteks terakhir).
+ * - Berjalan: utama "Jeda"; sekunder "Akhiri"; menu: "Buang sesi".
+ * - Dijeda: utama "Lanjut"; sekunder "Akhiri"; menu: "Buang sesi".
+ * - Target tercapai: utama "Mulai istirahat"; sekunder "Lanjut fokus +5 menit"; teks kecil "Selesai tanpa istirahat".
+ * - Istirahat: utama "Lewati istirahat"; sekunder "Jeda" (atau "Lanjut" jika dijeda).
+ * - Istirahat habis: utama "Mulai fokus berikutnya".
+ */
+export function getFocusView(state: FocusViewStateInput): FocusViewResult {
+  const kind = resolveFocusStateKind(state);
+  const isStopwatch = (state.mode ?? "FOCUS") === "STOPWATCH";
+  const focusSec = Math.max(0, state.focusSec ?? 0);
+  const plannedSec = Math.max(0, state.plannedSec ?? 1500);
+  const remainingSec = Math.max(0, state.remainingSec ?? 0);
+  const overdueSec = Math.max(0, state.overdueSec ?? 0);
+  const breakRemainingSec = Math.max(0, state.breakRemainingSec ?? remainingSec);
+
+  switch (kind) {
+    case "READY":
+      return {
+        kind: "READY",
+        pesan: "Siap untuk belajar",
+        teksTengah: formatSecToMMSS(plannedSec),
+        teksKecil: "",
+        teksOverdue: null,
+        tombolUtama: { action: "START", label: "Mulai" },
+        tombolSekunder: [],
+        menuLainnya: [],
+      };
+
+    case "RUNNING":
+      return {
+        kind: "RUNNING",
+        pesan: isStopwatch ? "Stopwatch berjalan" : "Sedang fokus belajar",
+        teksTengah: isStopwatch ? formatSecToMMSS(focusSec) : formatSecToMMSS(remainingSec),
+        teksKecil: `Akumulasi: ${formatSecToMMSS(focusSec)}`,
+        teksOverdue: null,
+        tombolUtama: { action: "PAUSE", label: "Jeda" },
+        tombolSekunder: [{ action: "END", label: "Akhiri" }],
+        menuLainnya: [{ action: "DISCARD", label: "Buang sesi" }],
+      };
+
+    case "PAUSED":
+      return {
+        kind: "PAUSED",
+        pesan: "Sesi dijeda",
+        teksTengah: isStopwatch ? formatSecToMMSS(focusSec) : formatSecToMMSS(remainingSec),
+        teksKecil: `Akumulasi: ${formatSecToMMSS(focusSec)}`,
+        teksOverdue: null,
+        tombolUtama: { action: "RESUME", label: "Lanjut" },
+        tombolSekunder: [{ action: "END", label: "Akhiri" }],
+        menuLainnya: [{ action: "DISCARD", label: "Buang sesi" }],
+      };
+
+    case "TARGET_REACHED":
+      return {
+        kind: "TARGET_REACHED",
+        pesan: "Target tercapai",
+        teksTengah: "Target tercapai",
+        durasiTercatat: `${formatSecToMMSS(focusSec)} tercatat`,
+        teksKecil: "Selesai tanpa istirahat",
+        teksOverdue:
+          overdueSec > 0
+            ? `+${formatSecToMMSS(overdueSec)} sejak target, tidak dihitung sebagai fokus`
+            : null,
+        tombolUtama: { action: "START_BREAK", label: "Mulai istirahat" },
+        tombolSekunder: [{ action: "EXTEND", label: "Lanjut fokus +5 menit" }],
+        menuLainnya: [{ action: "DISCARD", label: "Buang sesi" }],
+      };
+
+    case "BREAK":
+      return {
+        kind: "BREAK",
+        pesan: state.breakStatus === "PAUSED" ? "Istirahat dijeda" : "Waktu istirahat",
+        teksTengah: formatSecToMMSS(breakRemainingSec),
+        teksKecil: "",
+        teksOverdue: null,
+        tombolUtama: { action: "SKIP_BREAK", label: "Lewati istirahat" },
+        tombolSekunder:
+          state.breakStatus === "PAUSED"
+            ? [{ action: "RESUME_BREAK", label: "Lanjut" }]
+            : [{ action: "PAUSE_BREAK", label: "Jeda" }],
+        menuLainnya: [],
+      };
+
+    case "BREAK_OVERDUE":
+      return {
+        kind: "BREAK_OVERDUE",
+        pesan: "Istirahat selesai",
+        teksTengah: "00:00",
+        teksKecil: "",
+        teksOverdue: null,
+        tombolUtama: { action: "NEXT_CYCLE", label: "Mulai fokus berikutnya" },
+        tombolSekunder: [],
+        menuLainnya: [],
+      };
+  }
+}
