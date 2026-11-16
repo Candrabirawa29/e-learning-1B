@@ -387,4 +387,37 @@ describe("Focus View & Screen Simplification Suite", () => {
       "READY"
     );
   });
+
+  test("9. Judul tab web (document.title) menampilkan waktu fokus real-time saat berjalan", () => {
+    const contextPath = path.join(process.cwd(), "src/components/focus/FocusTimerContext.tsx");
+    const contextContent = fs.readFileSync(contextPath, "utf-8");
+
+    // Memastikan judul tab memformat waktu fokus di awal judul: `(${timeText})`
+    assert.match(
+      contextContent,
+      /document\.title\s*=\s*`\(\$\{timeText\}\)\s*\$\{modeLabel\}/,
+      "Judul tab harus menampilkan waktu countdown di awal kurung saat fokus berjalan"
+    );
+
+    // Memastikan judul tab menampilkan waktu istirahat saat istirahat berjalan
+    assert.match(
+      contextContent,
+      /document\.title\s*=\s*`\(\$\{timeText\}\)\s*Istirahat/,
+      "Judul tab harus menampilkan waktu istirahat saat break berjalan"
+    );
+
+    // Memastikan status jeda juga terindikasi
+    assert.match(
+      contextContent,
+      /document\.title\s*=\s*`\(⏸️\s*\$\{timeText\}\)/,
+      "Judul tab harus menampilkan indikator jeda saat sesi dijeda"
+    );
+
+    // Memastikan judul asli dikembalikan saat sesi berhenti
+    assert.match(
+      contextContent,
+      /document\.title\s*=\s*baseTitle/,
+      "Judul tab harus dikembalikan ke judul asli saat sesi tidak aktif"
+    );
+  });
 });

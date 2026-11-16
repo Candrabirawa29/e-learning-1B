@@ -34,6 +34,7 @@ import {
   resolveFocusSessionProgress,
   getFocusClock,
   FocusClockPhase,
+  formatSecToMMSS,
 } from "@/lib/focus/session-logic";
 import { toast } from "sonner";
 
@@ -530,22 +531,89 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
     [preferences?.alertIntensity, preferences?.soundVolume]
   );
 
-  // Tab title flash effect
+  // Dynamic Tab Title: Menampilkan waktu fokus/istirahat secara real-time pada tab browser
+  const originalTitleRef = React.useRef<string>("");
+
   React.useEffect(() => {
-    if (!isAlarmActive) return;
+    if (typeof document === "undefined") return;
 
-    let flag = false;
-    const originalTitle = document.title;
-    const interval = setInterval(() => {
-      document.title = flag ? "🔔 Fokus Selesai!" : originalTitle;
-      flag = !flag;
-    }, 1000);
+    // Simpan judul asli saat pertama kali atau saat judul tidak sedang menampilkan timer
+    if (
+      !originalTitleRef.current ||
+      (!document.title.startsWith("(") && !document.title.startsWith("🔔"))
+    ) {
+      originalTitleRef.current = document.title || "Class 1-B";
+    }
 
-    return () => {
-      clearInterval(interval);
-      document.title = originalTitle;
-    };
-  }, [isAlarmActive]);
+    const baseTitle = originalTitleRef.current || "Class 1-B";
+
+    // 1. Jika alarm aktif: kedipkan notifikasi alarm
+    if (isAlarmActive) {
+      let flag = false;
+      const interval = setInterval(() => {
+        document.title = flag ? "🔔 Fokus Selesai!" : `(Target Tercapai) ${baseTitle}`;
+        flag = !flag;
+      }, 1000);
+
+      return () => {
+        clearInterval(interval);
+        document.title = baseTitle;
+      };
+    }
+
+    // 2. Jika target tercapai (fokus selesai, sebelum atau sesudah alarm di-mute)
+    if (activeSession && activeSession.mode === FocusMode.FOCUS && isTargetReached) {
+      document.title = `(Target Tercapai) ${baseTitle}`;
+      return () => {
+        document.title = baseTitle;
+      };
+    }
+
+    // 3. Sesi Fokus Aktif (Pomodoro atau Stopwatch)
+    if (activeSession && !isBreakActive) {
+      const isRunning = activeSession.status === FocusSessionStatus.RUNNING;
+      const isStopwatch = activeSession.mode === FocusMode.STOPWATCH;
+      const timeText = isStopwatch ? formatSecToMMSS(focusSec) : formatSecToMMSS(remainingSec);
+      const modeLabel = isStopwatch ? "Stopwatch" : "Fokus";
+
+      if (isRunning) {
+        document.title = `(${timeText}) ${modeLabel} | ${baseTitle}`;
+      } else {
+        document.title = `(⏸️ ${timeText}) ${modeLabel} | ${baseTitle}`;
+      }
+
+      return () => {
+        document.title = baseTitle;
+      };
+    }
+
+    // 4. Sesi Istirahat Aktif
+    if (isBreakActive) {
+      const isRunning = breakState.status === "RUNNING";
+      const timeText = formatSecToMMSS(remainingSec);
+
+      if (isRunning) {
+        document.title = `(${timeText}) Istirahat | ${baseTitle}`;
+      } else {
+        document.title = `(⏸️ ${timeText}) Istirahat | ${baseTitle}`;
+      }
+
+      return () => {
+        document.title = baseTitle;
+      };
+    }
+
+    // 5. Tidak ada sesi aktif -> Kembalikan judul asli
+    document.title = baseTitle;
+  }, [
+    activeSession,
+    isBreakActive,
+    breakState.status,
+    remainingSec,
+    focusSec,
+    isTargetReached,
+    isAlarmActive,
+  ]);
 
   // Trigger completion alarm when target reached in FOCUS mode
   React.useEffect(() => {
