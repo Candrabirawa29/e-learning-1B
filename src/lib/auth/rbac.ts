@@ -70,7 +70,7 @@ export function canCreateTask(
 }
 
 export function canEditTask(
-  task: { courseId?: string | null; createdById?: string },
+  task: { courseId?: string | null; createdById?: string | null },
   session: CurrentUserSession
 ): boolean {
   void task;
@@ -83,16 +83,26 @@ export function canEditTask(
 }
 
 export function canDeleteTask(
-  task: { courseId?: string | null; createdById?: string },
+  task: { courseId?: string | null; createdById?: string | null },
   session: CurrentUserSession
 ): boolean {
-  void task;
   if (!session.user) return false;
-  return (
-    session.effectiveRole === "ADMIN" ||
-    session.effectiveRole === "PJ" ||
-    session.effectiveRole === "MEMBER"
-  );
+
+  // Admin can delete any task
+  if (session.effectiveRole === "ADMIN") return true;
+
+  // Creator can delete their own task
+  if (task.createdById && session.user.id === task.createdById) {
+    return true;
+  }
+
+  // PJ of that task's course, or any PJ if task has no course
+  if (session.effectiveRole === "PJ") {
+    if (!task.courseId) return true;
+    return session.assignedCourseIds?.includes(task.courseId) ?? false;
+  }
+
+  return false;
 }
 
 export function canUploadMaterial(
@@ -100,29 +110,56 @@ export function canUploadMaterial(
   course?: { id?: string; kind?: "REGULAR" | "EXTRA" | null; ownerId?: string | null } | string | null
 ): boolean {
   if (!session.user) return false;
+
+  // EXTRA hanya pemilik yang boleh menambah materi
   if (course && typeof course === "object" && course.kind === "EXTRA") {
     return session.user.id === course.ownerId;
   }
-  return (
-    session.effectiveRole === "ADMIN" ||
-    session.effectiveRole === "PJ" ||
-    session.effectiveRole === "MEMBER"
-  );
+
+  // Admin memiliki hak penuh untuk REGULAR
+  if (session.effectiveRole === "ADMIN") return true;
+
+  // PJ dapat mengunggah ke mata kuliah yang ditugaskan atau materi umum
+  if (session.effectiveRole === "PJ") {
+    const courseId = typeof course === "string" ? course : course?.id;
+    if (!courseId) return true;
+    return session.assignedCourseIds?.includes(courseId) ?? false;
+  }
+
+  // Regular members are read-only for regular course materials
+  return false;
 }
 
 export function canManageMaterial(
-  material: { courseId?: string | null; uploadedById?: string; course?: { kind?: "REGULAR" | "EXTRA" | null; ownerId?: string | null } | null },
+  material: {
+    courseId?: string | null;
+    uploadedById?: string | null;
+    course?: { id?: string; kind?: "REGULAR" | "EXTRA" | null; ownerId?: string | null } | null;
+  },
   session: CurrentUserSession
 ): boolean {
   if (!session.user) return false;
+
+  // EXTRA hanya pemilik yang boleh mengelola materi
   if (material.course && material.course.kind === "EXTRA") {
     return session.user.id === material.course.ownerId;
   }
-  return (
-    session.effectiveRole === "ADMIN" ||
-    session.effectiveRole === "PJ" ||
-    session.effectiveRole === "MEMBER"
-  );
+
+  // Admin memiliki hak penuh
+  if (session.effectiveRole === "ADMIN") return true;
+
+  // Pengunggah materi dapat mengelola materi miliknya sendiri
+  if (material.uploadedById && session.user.id === material.uploadedById) {
+    return true;
+  }
+
+  // PJ dapat mengelola materi pada mata kuliah yang ditugaskan atau materi umum
+  if (session.effectiveRole === "PJ") {
+    if (!material.courseId) return true;
+    return session.assignedCourseIds?.includes(material.courseId) ?? false;
+  }
+
+  return false;
 }
 
 export function canManageTopic(
@@ -130,14 +167,23 @@ export function canManageTopic(
   course?: { id?: string; kind?: "REGULAR" | "EXTRA" | null; ownerId?: string | null } | string | null
 ): boolean {
   if (!session.user) return false;
+
+  // EXTRA hanya pemilik yang boleh mengelola sub-topik
   if (course && typeof course === "object" && course.kind === "EXTRA") {
     return session.user.id === course.ownerId;
   }
-  return (
-    session.effectiveRole === "ADMIN" ||
-    session.effectiveRole === "PJ" ||
-    session.effectiveRole === "MEMBER"
-  );
+
+  // Admin memiliki hak penuh
+  if (session.effectiveRole === "ADMIN") return true;
+
+  // PJ dapat mengelola topik pada mata kuliah yang ditugaskan atau topik umum
+  if (session.effectiveRole === "PJ") {
+    const courseId = typeof course === "string" ? course : course?.id;
+    if (!courseId) return true;
+    return session.assignedCourseIds?.includes(courseId) ?? false;
+  }
+
+  return false;
 }
 
 export function canCreateAnnouncement(session: CurrentUserSession): boolean {
