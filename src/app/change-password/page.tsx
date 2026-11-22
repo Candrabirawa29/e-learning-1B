@@ -3,7 +3,9 @@
 import * as React from "react";
 import { changePasswordAction, logoutAction } from "@/actions/auth";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
+import { PasswordRequirements } from "@/components/auth/PasswordRequirements";
+import { isPasswordFullyCompliant } from "@/lib/auth/password-rules";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Lock, KeyRound, Loader2, LogOut } from "lucide-react";
@@ -21,8 +23,8 @@ export default function ChangePasswordPage() {
     e.preventDefault();
     setErrorMessage(null);
 
-    if (newPassword.length < 8) {
-      setErrorMessage("Password baru minimal 8 karakter.");
+    if (!isPasswordFullyCompliant(newPassword)) {
+      setErrorMessage("Kata sandi baru belum memenuhi seluruh kriteria keamanan di bawah.");
       return;
     }
 
@@ -84,39 +86,36 @@ export default function ChangePasswordPage() {
                 <Label htmlFor="new-password" className="text-xs font-medium">
                   Kata Sandi Baru
                 </Label>
-                <div className="relative">
-                  <Lock className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="new-password"
-                    type="password"
-                    placeholder="Minimal 8 karakter..."
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="pl-9 h-9 text-xs"
-                    required
-                  />
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Gunakan kombinasi huruf besar, huruf kecil, dan angka.
-                </p>
+                <PasswordInput
+                  id="new-password"
+                  leftIcon={<Lock className="h-4 w-4" />}
+                  placeholder="Buat kata sandi baru..."
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="h-9 text-xs"
+                  required
+                />
               </div>
+
+              {/* Indikator Animasi Kebutuhan Password Sesuai Zod */}
+              <PasswordRequirements
+                password={newPassword}
+                confirmPassword={confirmPassword}
+              />
 
               <div className="space-y-1.5">
                 <Label htmlFor="confirm-password" className="text-xs font-medium">
                   Konfirmasi Kata Sandi Baru
                 </Label>
-                <div className="relative">
-                  <Lock className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="confirm-password"
-                    type="password"
-                    placeholder="Ulangi kata sandi baru..."
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="pl-9 h-9 text-xs"
-                    required
-                  />
-                </div>
+                <PasswordInput
+                  id="confirm-password"
+                  leftIcon={<Lock className="h-4 w-4" />}
+                  placeholder="Ulangi kata sandi baru..."
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="h-9 text-xs"
+                  required
+                />
               </div>
             </CardContent>
 

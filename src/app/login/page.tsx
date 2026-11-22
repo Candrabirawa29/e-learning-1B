@@ -7,6 +7,7 @@ import { loginAction } from "@/actions/auth";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Lock, Mail, Loader2, ArrowLeft, ShieldCheck, AlertCircle } from "lucide-react";
@@ -109,18 +110,15 @@ function LoginForm() {
                 Kata Sandi
               </Label>
             </div>
-            <div className="relative">
-              <Lock className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="pl-9 h-9 text-xs"
-                required
-              />
-            </div>
+            <PasswordInput
+              id="password"
+              leftIcon={<Lock className="h-4 w-4" />}
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="h-9 text-xs"
+              required
+            />
           </div>
 
           <div className="p-2.5 rounded-lg bg-muted/40 border text-[11px] text-muted-foreground space-y-1">

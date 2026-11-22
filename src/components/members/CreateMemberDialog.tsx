@@ -4,6 +4,7 @@ import * as React from "react";
 import { createMemberAction } from "@/actions/members";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -148,9 +149,8 @@ export function CreateMemberDialog() {
                 <KeyRound className="h-3 w-3 text-muted-foreground" />
                 Password Awal (Opsional)
               </Label>
-              <Input
+              <PasswordInput
                 id="mem-pw"
-                type="text"
                 placeholder="Default: pwuinjkt"
                 value={customPassword}
                 onChange={(e) => setCustomPassword(e.target.value)}

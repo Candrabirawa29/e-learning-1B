@@ -5,6 +5,9 @@ import { updateProfileAction } from "@/actions/members";
 import { changePasswordAction } from "@/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
+import { PasswordRequirements } from "@/components/auth/PasswordRequirements";
+import { isPasswordFullyCompliant } from "@/lib/auth/password-rules";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { User, KeyRound, Loader2 } from "lucide-react";
@@ -38,8 +41,8 @@ export default function ProfilePage() {
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newPassword.length < 8) {
-      toast.error("Password baru minimal 8 karakter.");
+    if (!isPasswordFullyCompliant(newPassword)) {
+      toast.error("Kata sandi baru belum memenuhi kriteria keamanan.");
       return;
     }
 
@@ -134,12 +137,11 @@ export default function ProfilePage() {
             <CardContent className="space-y-3 text-xs">
               <div className="space-y-1.5">
                 <Label htmlFor="new-pw" className="text-xs font-medium">
-                  Kata Sandi Baru (Min. 8 karakter)
+                  Kata Sandi Baru
                 </Label>
-                <Input
+                <PasswordInput
                   id="new-pw"
-                  type="password"
-                  placeholder="••••••••"
+                  placeholder="Buat kata sandi baru..."
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   className="h-9 text-xs"
@@ -147,14 +149,19 @@ export default function ProfilePage() {
                 />
               </div>
 
+              {/* Animasi Kebutuhan Password Sesuai Zod */}
+              <PasswordRequirements
+                password={newPassword}
+                confirmPassword={confirmPassword}
+              />
+
               <div className="space-y-1.5">
                 <Label htmlFor="conf-pw" className="text-xs font-medium">
                   Konfirmasi Kata Sandi Baru
                 </Label>
-                <Input
+                <PasswordInput
                   id="conf-pw"
-                  type="password"
-                  placeholder="••••••••"
+                  placeholder="Ulangi kata sandi baru..."
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className="h-9 text-xs"
