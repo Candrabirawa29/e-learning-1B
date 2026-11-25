@@ -133,9 +133,8 @@ export function SidebarNav({ session, isMobile = false }: SidebarNavProps) {
           </div>
 
           <div className="space-y-1 pt-2 border-t">
-            <div className="px-3 py-1 font-semibold text-[11px] text-muted-foreground uppercase tracking-wider flex items-center justify-between">
-              <span>Fokus & Belajar</span>
-              <span className="text-[9px] font-normal lowercase bg-muted px-1.5 py-0.5 rounded text-muted-foreground">pribadi</span>
+            <div className="px-3 py-1 font-semibold text-[11px] text-muted-foreground uppercase tracking-wider">
+              <span>Fokus &amp; Belajar</span>
             </div>
             {studyIntelligenceLinks.map((item) => {
               const Icon = item.icon;

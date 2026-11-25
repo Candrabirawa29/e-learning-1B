@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { formatWib, getWibDayOfWeek, wibDayKey, offsetDateKey } from "@/lib/datetime";
+import { formatWib, wibDayKey } from "@/lib/datetime";
+import { buildHeatmapWeeksGrid } from "@/lib/analytics/heatmap-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Flame, Calendar, Info } from "lucide-react";
@@ -18,10 +19,6 @@ interface StudyContributionHeatmapProps {
   longestStreak: number;
 }
 
-const MONTH_NAMES_SHORT = [
-  "Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"
-];
-
 const DAY_LABELS = ["Sen", "", "Rab", "", "Jum", "", ""];
 
 export function StudyContributionHeatmap({
@@ -35,106 +32,17 @@ export function StudyContributionHeatmap({
   const todayKey = React.useMemo(() => wibDayKey(new Date()), []);
   const currentYear = React.useMemo(() => parseInt(todayKey.slice(0, 4), 10), [todayKey]);
 
-  // Construct weeks grid
-  const { weeks, monthLabels } = React.useMemo(() => {
-    let startDateKey = "";
-    let endDateKey = todayKey;
+  // Construct weeks grid & aligned month header columns via pure helper
+  const { weeks, monthLabels } = React.useMemo(
+    () => buildHeatmapWeeksGrid({ period, todayKey, currentYear, dataMap }),
+    [period, todayKey, currentYear, dataMap]
+  );
 
-    if (period === "ROLLING_12_MONTHS") {
-      // 52 minggu ke belakang mulai hari Senin
-      const targetPast = offsetDateKey(todayKey, -364);
-      const dow = getWibDayOfWeek(targetPast); // 1 = Sen ... 7 = Min
-      // Mundur ke hari Senin minggu tersebut
-      startDateKey = offsetDateKey(targetPast, -(dow - 1));
-      // Maju ke hari Minggu minggu ini
-      const todayDow = getWibDayOfWeek(todayKey);
-      endDateKey = offsetDateKey(todayKey, 7 - todayDow);
-    } else {
-      // Tahun kalender berjalan (1 Jan - 31 Des)
-      const jan1 = `${currentYear}-01-01`;
-      const dec31 = `${currentYear}-12-31`;
-      const jan1Dow = getWibDayOfWeek(jan1);
-      startDateKey = offsetDateKey(jan1, -(jan1Dow - 1));
-      const dec31Dow = getWibDayOfWeek(dec31);
-      endDateKey = offsetDateKey(dec31, 7 - dec31Dow);
-    }
-
-    // Bangun array kolom minggu (tiap minggu memiliki 7 hari: Sen = 0 s/d Min = 6)
-    const weeksList: {
-      days: {
-        dateKey: string;
-        minutes: number;
-        sessionCount: number;
-        isFuture: boolean;
-        level: number;
-      }[];
-    }[] = [];
-
-    const monthHeaders: { label: string; colIndex: number }[] = [];
-    let lastMonth = -1;
-
-    let cursor = startDateKey;
-    let currentWeek: {
-      dateKey: string;
-      minutes: number;
-      sessionCount: number;
-      isFuture: boolean;
-      level: number;
-    }[] = [];
-
-    let colIndex = 0;
-
-    while (cursor <= endDateKey) {
-      const isFuture = cursor > todayKey;
-      const rec = dataMap[cursor];
-      const minutes = !isFuture && rec ? rec.minutes : 0;
-      const sessionCount = !isFuture && rec ? rec.sessionCount : 0;
-
-      // Hitung 5 tingkat warna
-      let level = 0;
-      if (minutes >= 120) level = 4;
-      else if (minutes >= 60) level = 3;
-      else if (minutes >= 25) level = 2;
-      else if (minutes > 0) level = 1;
-
-      currentWeek.push({
-        dateKey: cursor,
-        minutes,
-        sessionCount,
-        isFuture,
-        level,
-      });
-
-      // Simpan label bulan di minggu pertama saat bulan berganti
-      const monthNum = parseInt(cursor.slice(5, 7), 10) - 1;
-      if (monthNum !== lastMonth && currentWeek.length === 1) {
-        monthHeaders.push({
-          label: MONTH_NAMES_SHORT[monthNum],
-          colIndex,
-        });
-        lastMonth = monthNum;
-      }
-
-      if (currentWeek.length === 7) {
-        weeksList.push({ days: currentWeek });
-        currentWeek = [];
-        colIndex++;
-      }
-
-      cursor = offsetDateKey(cursor, 1);
-    }
-
-    if (currentWeek.length > 0) {
-      weeksList.push({ days: currentWeek });
-    }
-
-    return { weeks: weeksList, monthLabels: monthHeaders };
-  }, [period, todayKey, currentYear, dataMap]);
-
-  // Otomatis scroll ke minggu terbaru di mobile
+  // Otomatis scroll ke minggu terbaru hanya jika container memang overflow (mis. mobile/tablet)
   React.useEffect(() => {
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollLeft = scrollContainerRef.current.scrollWidth;
+    const el = scrollContainerRef.current;
+    if (el && el.scrollWidth > el.clientWidth) {
+      el.scrollLeft = el.scrollWidth;
     }
   }, [weeks]);
 
@@ -219,58 +127,56 @@ export function StudyContributionHeatmap({
           aria-label="Tabel kontribusi belajar tahunan. Gulir horizontal untuk melihat riwayat minggu."
           className="overflow-x-auto pb-2 pt-1 focus:outline-hidden focus:ring-1 focus:ring-primary/40 rounded-lg"
         >
-          <div className="min-w-[760px] select-none">
-            {/* Month Labels on top */}
-            <div className="flex text-[10px] text-muted-foreground font-medium mb-1 pl-7">
-              {weeks.map((_, colIdx) => {
-                const header = monthLabels.find((m) => m.colIndex === colIdx);
-                return (
-                  <div key={colIdx} className="w-3.5 mr-1 text-left shrink-0">
-                    {header ? header.label : ""}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Grid Container (Day labels on left + 7 rows of week columns) */}
-            <div className="flex gap-1.5">
-              {/* Day of Week Labels (Sen, Rab, Jum) */}
-              <div className="flex flex-col gap-1 text-[9px] text-muted-foreground font-medium pr-1 pt-0.5 shrink-0">
-                {DAY_LABELS.map((lbl, idx) => (
-                  <div key={idx} className="h-3 leading-3 w-5 text-right">
-                    {lbl}
-                  </div>
-                ))}
+          <div
+            className="grid gap-[3px] min-w-[740px] select-none items-center"
+            style={{
+              gridTemplateColumns: `28px repeat(${weeks.length}, minmax(10px, 1fr))`,
+            }}
+          >
+            {/* Row 1: Month Labels placed on exact same week column tracks */}
+            <div className="sticky left-0 bg-card z-10 h-4" />
+            {monthLabels.map((m) => (
+              <div
+                key={`${m.label}-${m.colIndex}`}
+                style={{ gridColumn: `${m.colIndex + 2} / span ${m.colSpan}` }}
+                className="text-[10px] text-muted-foreground font-medium text-left leading-none pb-0.5 truncate"
+              >
+                {m.label}
               </div>
+            ))}
 
-              {/* Week Columns */}
-              <div className="flex gap-1">
-                {weeks.map((w, colIdx) => (
-                  <div key={colIdx} className="flex flex-col gap-1 shrink-0">
-                    {w.days.map((day) => {
-                      const formattedDate = formatWib(day.dateKey, "date");
-                      const tooltipText = day.isFuture
-                        ? `${formattedDate} (Mendatang)`
-                        : `${formattedDate}: ${day.minutes} menit fokus (${day.sessionCount} sesi)`;
+            {/* Rows 2..8: 7 days (Sen=0 .. Min=6) with sticky day labels on the left */}
+            {DAY_LABELS.map((lbl, dayIdx) => (
+              <React.Fragment key={`row-${dayIdx}`}>
+                <div className="sticky left-0 bg-card z-10 pr-1.5 text-[9px] text-muted-foreground font-medium text-right leading-none">
+                  {lbl}
+                </div>
+                {weeks.map((w, colIdx) => {
+                  const day = w.days[dayIdx];
+                  if (!day) {
+                    return <div key={`empty-${colIdx}-${dayIdx}`} />;
+                  }
+                  const formattedDate = formatWib(day.dateKey, "date");
+                  const tooltipText = day.isFuture
+                    ? `${formattedDate} (Mendatang)`
+                    : `${formattedDate}: ${day.minutes} menit fokus (${day.sessionCount} sesi)`;
 
-                      return (
-                        <div
-                          key={day.dateKey}
-                          tabIndex={day.isFuture ? -1 : 0}
-                          role="gridcell"
-                          aria-label={tooltipText}
-                          title={tooltipText}
-                          className={`w-3 h-3 rounded-[2.5px] transition-colors focus:outline-hidden ${getColorClass(
-                            day.level,
-                            day.isFuture
-                          )}`}
-                        />
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-            </div>
+                  return (
+                    <div
+                      key={day.dateKey}
+                      tabIndex={day.isFuture ? -1 : 0}
+                      role="gridcell"
+                      aria-label={tooltipText}
+                      title={tooltipText}
+                      className={`w-full aspect-square rounded-[2.5px] transition-colors focus:outline-hidden ${getColorClass(
+                        day.level,
+                        day.isFuture
+                      )}`}
+                    />
+                  );
+                })}
+              </React.Fragment>
+            ))}
           </div>
         </div>
 

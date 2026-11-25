@@ -4,6 +4,7 @@ import * as React from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Clock } from "lucide-react";
 import { HourDayMatrixRow } from "@/lib/analytics/study-queries";
+import { getHourHeaderSpecs } from "@/lib/analytics/heatmap-layout";
 
 interface StudyHourDayMatrixProps {
   matrixData: HourDayMatrixRow[];
@@ -11,6 +12,7 @@ interface StudyHourDayMatrixProps {
 
 const DOW_NAMES = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"];
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
+const HOUR_HEADERS = getHourHeaderSpecs();
 
 export function StudyHourDayMatrix({ matrixData }: StudyHourDayMatrixProps) {
   // Map matrixData into a lookup map: `${day_of_week}_${hour_of_day}` -> minutes
@@ -62,63 +64,67 @@ export function StudyHourDayMatrix({ matrixData }: StudyHourDayMatrixProps) {
             Belum ada data pola jam belajar.
           </div>
         ) : (
-          <div className="overflow-x-auto pb-2 focus:outline-hidden rounded-lg">
-            <div className="min-w-[580px] text-xs">
-              {/* Hour header */}
-              <div className="flex pl-10 mb-1">
-                {HOURS.filter((h) => h % 2 === 0).map((h) => (
-                  <div key={h} className="w-10 text-[10px] text-muted-foreground font-mono text-center shrink-0">
-                    {h.toString().padStart(2, "0")}:00
+          <div className="space-y-2">
+            <div className="overflow-x-auto pb-2 focus:outline-hidden rounded-lg">
+              <div
+                className="grid gap-1 min-w-[580px] text-xs items-center"
+                style={{ gridTemplateColumns: "32px repeat(24, minmax(0, 1fr))" }}
+              >
+                {/* Hour header placed on the exact same 24-column CSS grid tracks */}
+                <div className="sticky left-0 bg-card z-10 h-4" />
+                {HOUR_HEADERS.map((hdr) => (
+                  <div
+                    key={hdr.hour}
+                    style={{ gridColumn: `${hdr.gridColumnStart} / span ${hdr.colSpan}` }}
+                    className="text-[10px] text-muted-foreground font-mono text-left whitespace-nowrap pb-0.5"
+                  >
+                    {hdr.label}
                   </div>
                 ))}
-              </div>
 
-              {/* Rows: 1 (Senin) to 7 (Minggu) */}
-              <div className="space-y-1">
+                {/* Rows: 1 (Senin) to 7 (Minggu) */}
                 {[1, 2, 3, 4, 5, 6, 7].map((dow, rowIdx) => {
                   const dayName = DOW_NAMES[rowIdx];
                   return (
-                    <div key={dow} className="flex items-center gap-1.5">
-                      <span className="w-8 text-[11px] font-medium text-muted-foreground text-right shrink-0">
+                    <React.Fragment key={dow}>
+                      <span className="sticky left-0 bg-card z-10 pr-1.5 text-[11px] font-medium text-muted-foreground text-right">
                         {dayName}
                       </span>
 
-                      <div className="flex gap-1 flex-1">
-                        {HOURS.map((h) => {
-                          const slot = lookup.get(`${dow}_${h}`);
-                          const minutes = slot?.minutes || 0;
-                          const count = slot?.count || 0;
+                      {HOURS.map((h) => {
+                        const slot = lookup.get(`${dow}_${h}`);
+                        const minutes = slot?.minutes || 0;
+                        const count = slot?.count || 0;
 
-                          const tooltip = `${dayName}, ${h.toString().padStart(2, "0")}:00 - ${h}:59: ${minutes}m fokus (${count} sesi)`;
+                        const tooltip = `${dayName}, ${h.toString().padStart(2, "0")}:00 - ${h}:59: ${minutes}m fokus (${count} sesi)`;
 
-                          return (
-                            <div
-                              key={h}
-                              title={tooltip}
-                              aria-label={tooltip}
-                              className={`h-4 flex-1 rounded-[2px] transition-colors cursor-pointer border ${getColor(
-                                minutes
-                              )}`}
-                            />
-                          );
-                        })}
-                      </div>
-                    </div>
+                        return (
+                          <div
+                            key={`${dow}-${h}`}
+                            title={tooltip}
+                            aria-label={tooltip}
+                            className={`h-4 w-full rounded-[2px] transition-colors cursor-pointer border ${getColor(
+                              minutes
+                            )}`}
+                          />
+                        );
+                      })}
+                    </React.Fragment>
                   );
                 })}
               </div>
+            </div>
 
-              {/* Legend */}
-              <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-3 mt-2 border-t">
-                <span>Warna lebih pekat menandakan akumulasi menit fokus lebih tinggi</span>
-                <div className="flex items-center gap-1">
-                  <span className="text-[10px]">Kurang</span>
-                  <div className="w-2.5 h-2.5 rounded-[2px] bg-muted/40" />
-                  <div className="w-2.5 h-2.5 rounded-[2px] bg-emerald-200 dark:bg-emerald-950" />
-                  <div className="w-2.5 h-2.5 rounded-[2px] bg-emerald-400 dark:bg-emerald-700" />
-                  <div className="w-2.5 h-2.5 rounded-[2px] bg-emerald-600 dark:bg-emerald-500" />
-                  <span className="text-[10px]">Intens</span>
-                </div>
+            {/* Legend */}
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-2 border-t">
+              <span>Warna lebih pekat menandakan akumulasi menit fokus lebih tinggi</span>
+              <div className="flex items-center gap-1">
+                <span className="text-[10px]">Kurang</span>
+                <div className="w-2.5 h-2.5 rounded-[2px] bg-muted/40" />
+                <div className="w-2.5 h-2.5 rounded-[2px] bg-emerald-200 dark:bg-emerald-950" />
+                <div className="w-2.5 h-2.5 rounded-[2px] bg-emerald-400 dark:bg-emerald-700" />
+                <div className="w-2.5 h-2.5 rounded-[2px] bg-emerald-600 dark:bg-emerald-500" />
+                <span className="text-[10px]">Intens</span>
               </div>
             </div>
           </div>
