@@ -4,11 +4,13 @@ import {
   AUTO_COMPLETE_GRACE_SEC,
   HEARTBEAT_TIMEOUT_SEC,
   EXTENSION_STEP_SEC,
+  ActiveFocusSessionDto,
 } from "@/types/focus";
 
 export interface FocusSessionInput {
   mode: "FOCUS" | "STOPWATCH";
   plannedSec: number;
+  initialPlannedSec?: number | null;
   startedAt: Date | string | number;
   lastResumedAt?: Date | string | number | null;
   accumulatedSec: number;
@@ -197,7 +199,8 @@ export function formatOverdueText(overdueSec: number): string {
  * 2. Tanpa konfirmasi 10 menit (overdueSec >= 600) saat target tercapai, sesi otomatis COMPLETED
  *    dengan focusSec = plannedSec (finalisasi lazy, tanpa cron).
  * 3. Mode STOPWATCH tidak dibatasi durasinya oleh plannedSec.
- * 4. Sesi tanpa aktivitas > 4 jam otomatis STOPPED_EARLY dengan accumulatedSec yang valid.
+ * 4. Sesi tanpa aktivitas > 4 jam atau tanpa heartbeat > 10 menit ditutup otomatis;
+ *    status diturunkan murni dari durasi fokus valid (COMPLETED jika target tercapai, STOPPED_EARLY jika kurang).
  */
 export function resolveFocusSessionProgress(
   session: FocusSessionInput,
@@ -212,44 +215,12 @@ export function resolveFocusSessionProgress(
   const isRunning = session.status === "RUNNING";
   const isPaused = session.status === "PAUSED";
 
-  // 1. Cek sesi terlantar (abandoned): inaktivitas > 4 jam
   const lastActiveMs = lastResumedAtMs || updatedAtMs || startedAtMs;
   const elapsedSinceActivityMs = Math.max(0, nowMs - lastActiveMs);
   const isAbandoned = (isRunning || isPaused) && elapsedSinceActivityMs > MAX_INACTIVITY_MS;
 
-  if (isAbandoned) {
-    let finalAccumulated = session.accumulatedSec;
-    if (isRunning && lastResumedAtMs) {
-      const allowedAdditional = Math.floor(
-        (lastActiveMs + MAX_INACTIVITY_MS - lastResumedAtMs) / 1000
-      );
-      finalAccumulated = Math.min(
-        MAX_SESSION_SEC,
-        session.accumulatedSec + Math.max(0, allowedAdditional)
-      );
-    }
-
-    const focusSec = isFocusMode
-      ? Math.min(finalAccumulated, session.plannedSec)
-      : Math.min(MAX_SESSION_SEC, finalAccumulated);
-
-    return {
-      elapsedSec: finalAccumulated,
-      focusSec,
-      overdueSec: isFocusMode ? Math.max(0, finalAccumulated - session.plannedSec) : 0,
-      remainingSec: 0,
-      isTargetReached: isFocusMode && finalAccumulated >= session.plannedSec,
-      isAutoCompleted: false,
-      isAbandoned: true,
-      isHeartbeatStale: false,
-      effectiveEndMs: lastActiveMs + MAX_INACTIVITY_MS,
-      resolvedStatus: "STOPPED_EARLY",
-      formattedDisplay: formatSecToMMSS(focusSec),
-      formattedOverdue: null,
-    };
-  }
-
-  // 2. Cek sesi tanpa heartbeat > 10 menit (HEARTBEAT_TIMEOUT_SEC = 600s) saat RUNNING
+  // 1. Cek sesi RUNNING tanpa heartbeat > 10 menit (HEARTBEAT_TIMEOUT_SEC = 600s) lebih dulu
+  // agar durasi tidak pernah melampaui bukti aktivitas klien terakhir meski dicek > 4 jam kemudian.
   const lastSeenAtMs = toEpochMs(session.lastSeenAt);
   const isHeartbeatStale =
     isRunning &&
@@ -265,20 +236,57 @@ export function resolveFocusSessionProgress(
     const staleFocusSec = isFocusMode
       ? Math.min(staleElapsedSec, session.plannedSec)
       : staleElapsedSec;
-    const derived = deriveStatus(staleFocusSec, session.plannedSec, session.mode);
+    const statusTargetSec = session.initialPlannedSec ?? session.plannedSec;
+    const derived = deriveStatus(staleFocusSec, statusTargetSec, session.mode);
+    const staleOverdueSec = isFocusMode ? Math.max(0, staleElapsedSec - session.plannedSec) : 0;
 
     return {
       elapsedSec: staleElapsedSec,
       focusSec: staleFocusSec,
-      overdueSec: isFocusMode ? Math.max(0, staleElapsedSec - session.plannedSec) : 0,
+      overdueSec: staleOverdueSec,
       remainingSec: 0,
       isTargetReached: isFocusMode && staleElapsedSec >= session.plannedSec,
-      isAutoCompleted: false,
-      isAbandoned: false,
+      isAutoCompleted: isFocusMode && staleOverdueSec >= AUTO_COMPLETE_GRACE_SEC,
+      isAbandoned,
       isHeartbeatStale: true,
       effectiveEndMs: lastSeenAtMs,
       resolvedStatus: derived ?? "STOPPED_EARLY",
       formattedDisplay: formatSecToMMSS(staleFocusSec),
+      formattedOverdue: null,
+    };
+  }
+
+  // 2. Cek sesi terlantar (abandoned): inaktivitas > 4 jam (untuk sesi PAUSED atau tanpa lastSeenAt)
+  if (isAbandoned) {
+    let finalAccumulated = session.accumulatedSec;
+    if (isRunning && lastResumedAtMs) {
+      const allowedAdditional = Math.floor(
+        (lastActiveMs + MAX_INACTIVITY_MS - lastResumedAtMs) / 1000
+      );
+      finalAccumulated = Math.min(
+        MAX_SESSION_SEC,
+        session.accumulatedSec + Math.max(0, allowedAdditional)
+      );
+    }
+
+    const focusSec = isFocusMode
+      ? Math.min(finalAccumulated, session.plannedSec)
+      : Math.min(MAX_SESSION_SEC, finalAccumulated);
+    const statusTargetSec = session.initialPlannedSec ?? session.plannedSec;
+    const derived = deriveStatus(focusSec, statusTargetSec, session.mode);
+
+    return {
+      elapsedSec: finalAccumulated,
+      focusSec,
+      overdueSec: isFocusMode ? Math.max(0, finalAccumulated - session.plannedSec) : 0,
+      remainingSec: 0,
+      isTargetReached: isFocusMode && finalAccumulated >= session.plannedSec,
+      isAutoCompleted: false,
+      isAbandoned: true,
+      isHeartbeatStale: false,
+      effectiveEndMs: lastActiveMs + MAX_INACTIVITY_MS,
+      resolvedStatus: derived ?? "STOPPED_EARLY",
+      formattedDisplay: formatSecToMMSS(focusSec),
       formattedOverdue: null,
     };
   }
@@ -379,6 +387,169 @@ export function extendFocusSessionPlan(
   };
 }
 
+export type FocusExtensionFailureReason =
+  | "NOT_FOCUS_MODE"
+  | "NOT_ACTIVE"
+  | "STALE_SESSION"
+  | "TARGET_NOT_REACHED"
+  | "MAX_DURATION_REACHED";
+
+export type PlanFocusExtensionResult =
+  | {
+      ok: true;
+      newPlannedSec: number;
+      newInitialPlannedSec: number;
+      newAccumulatedSec: number;
+      newLastResumedAt: Date;
+      newStatus: "RUNNING";
+    }
+  | {
+      ok: false;
+      reason: FocusExtensionFailureReason;
+      message: string;
+    };
+
+/**
+ * Memvalidasi apakah sesi berhak diperpanjang (+5 menit) berdasarkan waktu belajar riil.
+ * Mencegah spam klik tombol "+5 menit" menggelembungkan akumulasi tanpa fokus nyata.
+ */
+export function planFocusExtension(
+  session: FocusSessionInput,
+  now: Date | string | number = Date.now(),
+  extensionSec: number = EXTENSION_STEP_SEC
+): PlanFocusExtensionResult {
+  if (session.mode !== "FOCUS") {
+    return {
+      ok: false,
+      reason: "NOT_FOCUS_MODE",
+      message: "Hanya mode Pomodoro (Fokus) yang dapat diperpanjang.",
+    };
+  }
+
+  if (session.status !== "RUNNING" && session.status !== "PAUSED") {
+    return {
+      ok: false,
+      reason: "NOT_ACTIVE",
+      message: "Hanya sesi aktif yang dapat diperpanjang.",
+    };
+  }
+
+  const evaluation = resolveFocusSessionProgress(session, now);
+  if (evaluation.isAbandoned || evaluation.isHeartbeatStale || evaluation.isAutoCompleted) {
+    return {
+      ok: false,
+      reason: "STALE_SESSION",
+      message: "Sesi sudah selesai otomatis atau kedaluwarsa. Mulai sesi baru untuk lanjut belajar.",
+    };
+  }
+
+  if (!evaluation.isTargetReached || evaluation.focusSec < session.plannedSec) {
+    return {
+      ok: false,
+      reason: "TARGET_NOT_REACHED",
+      message: "Target durasi sesi saat ini belum tercapai.",
+    };
+  }
+
+  if (session.plannedSec >= MAX_SESSION_SEC) {
+    return {
+      ok: false,
+      reason: "MAX_DURATION_REACHED",
+      message: "Sesi telah mencapai batas maksimal 4 jam.",
+    };
+  }
+
+  const safeStepSec = Math.max(60, Math.floor(extensionSec));
+  const plan = extendFocusSessionPlan(session.plannedSec, now, safeStepSec);
+  const verifiedAccumulatedSec = Math.min(evaluation.focusSec, session.plannedSec);
+
+  return {
+    ok: true,
+    newPlannedSec: plan.newPlannedSec,
+    newInitialPlannedSec: session.initialPlannedSec ?? session.plannedSec,
+    newAccumulatedSec: verifiedAccumulatedSec,
+    newLastResumedAt: plan.newLastResumedAt,
+    newStatus: "RUNNING",
+  };
+}
+
+export interface ReconcileFocusSessionInput {
+  currentVersion: number;
+  currentMutationSeq: number;
+  incoming: ActiveFocusSessionDto | null;
+  incomingVersion?: number;
+  options?: {
+    force?: boolean;
+    mutationSeq?: number;
+    backgroundStartSeq?: number;
+  };
+}
+
+export type ReconcileFocusSessionOutput =
+  | { accepted: true; nextSession: ActiveFocusSessionDto | null; nextVersion: number }
+  | { accepted: false };
+
+/**
+ * Fungsi murni rekonsiliasi state timer klien terhadap respons mutasi dan snapshot server.
+ * Mencegah snapshot lama menimpa state baru sekaligus memastikan hasil mutasi terbaru
+ * tidak ditolak bila versi server berbeda instance (serverless).
+ */
+export function reconcileFocusSessionState({
+  currentVersion,
+  currentMutationSeq,
+  incoming,
+  incomingVersion,
+  options,
+}: ReconcileFocusSessionInput): ReconcileFocusSessionOutput {
+  if (
+    options?.backgroundStartSeq !== undefined &&
+    options.backgroundStartSeq < currentMutationSeq
+  ) {
+    return { accepted: false };
+  }
+
+  if (options?.mutationSeq !== undefined && options.mutationSeq < currentMutationSeq) {
+    return { accepted: false };
+  }
+
+  if (!incoming) {
+    return {
+      accepted: true,
+      nextSession: null,
+      nextVersion: 0,
+    };
+  }
+
+  const version = incomingVersion ?? incoming.version ?? 1;
+  const isLatestMutation =
+    options?.mutationSeq !== undefined && options.mutationSeq === currentMutationSeq;
+
+  if (options?.force || isLatestMutation) {
+    const nextVersion = options?.force ? version : Math.max(currentVersion, version);
+    return {
+      accepted: true,
+      nextSession: {
+        ...incoming,
+        version: nextVersion,
+      },
+      nextVersion,
+    };
+  }
+
+  if (version >= currentVersion) {
+    return {
+      accepted: true,
+      nextSession: {
+        ...incoming,
+        version,
+      },
+      nextVersion: version,
+    };
+  }
+
+  return { accepted: false };
+}
+
 /**
  * Fungsi Murni: Menurunkan status sesi fokus dari angka (bukan dari tombol).
  *
@@ -392,7 +563,8 @@ export function extendFocusSessionPlan(
 export function deriveStatus(
   focusSec: number,
   plannedSec: number,
-  mode: "FOCUS" | "STOPWATCH"
+  mode: "FOCUS" | "STOPWATCH",
+  initialPlannedSec?: number | null
 ): "COMPLETED" | "STOPPED_EARLY" | null {
   if (focusSec < 60) {
     return null; // Di bawah 60 detik tidak disimpan
@@ -402,7 +574,8 @@ export function deriveStatus(
     return "COMPLETED"; // Stopwatch tidak punya target
   }
 
-  if (focusSec >= plannedSec) {
+  const targetToCheck = initialPlannedSec ?? plannedSec;
+  if (focusSec >= targetToCheck) {
     return "COMPLETED"; // Target tercapai
   }
 

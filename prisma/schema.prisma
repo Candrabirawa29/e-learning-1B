@@ -391,9 +391,10 @@ model FocusSession {
   clientSessionId String
   courseId        String?
   taskId          String?
-  mode            FocusMode          @default(FOCUS)
-  plannedSec      Int
-  startedAt       DateTime
+  mode              FocusMode          @default(FOCUS)
+  plannedSec        Int
+  initialPlannedSec Int?
+  startedAt         DateTime
   lastResumedAt   DateTime?
   accumulatedSec  Int                @default(0)
   lastSeenAt      DateTime?

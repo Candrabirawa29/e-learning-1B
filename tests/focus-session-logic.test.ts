@@ -8,7 +8,6 @@ import {
   getDerivedStatusLabel,
   calculateCompletionRatio,
 } from "../src/lib/focus/session-logic";
-import { MAX_SESSION_SEC } from "../src/types/focus";
 
 describe("Focus Session Transition & Time Accounting Rules", () => {
   test("1. Target tercapai lalu dibiarkan 48 menit: otomatis COMPLETED dengan focusSec = plannedSec", () => {
@@ -144,12 +143,30 @@ describe("Focus Session Transition & Time Accounting Rules", () => {
     assert.strictEqual(evalExtended.overdueSec, 0);
   });
 
-  test("4. Sesi ditinggalkan (>4 jam tanpa aktivitas): otomatis STOPPED_EARLY", () => {
-    // Skenario: Mulai t = 0, jalan 20 menit (1200 detik), lalu ditinggalkan selama 5 jam (18000s)
+  test("4. Sesi ditinggalkan (>4 jam tanpa aktivitas): otomatis STOPPED_EARLY jika belum capai target", () => {
+    // Skenario A: Mulai t = 0, jalan 20 menit (1200 detik) lalu ditinggalkan selama 5 jam (18000s)
     const t0 = 1000000;
     const tAbandoned = t0 + 18000 * 1000; // 5 jam kemudian
 
-    const session = {
+    const sessionUnderTarget = {
+      mode: "FOCUS" as const,
+      plannedSec: 1500,
+      startedAt: t0,
+      lastResumedAt: t0,
+      accumulatedSec: 0,
+      lastSeenAt: t0 + 1200 * 1000, // Jalan 20 menit dari target 25 menit
+      status: "RUNNING" as const,
+      updatedAt: t0 + 1200 * 1000,
+    };
+
+    const evalUnderTarget = resolveFocusSessionProgress(sessionUnderTarget, tAbandoned);
+
+    assert.strictEqual(evalUnderTarget.isAbandoned, true, "Harus ditandai isAbandoned");
+    assert.strictEqual(evalUnderTarget.resolvedStatus, "STOPPED_EARLY", "Status harus STOPPED_EARLY karena 20m < 25m");
+    assert.strictEqual(evalUnderTarget.focusSec, 1200, "Durasi fokus terkunci di 20 menit");
+
+    // Skenario B: Target 25m (1500s) tercapai penuh lalu ditinggalkan > 4 jam -> harus COMPLETED
+    const sessionReachedTarget = {
       mode: "FOCUS" as const,
       plannedSec: 1500,
       startedAt: t0,
@@ -158,12 +175,14 @@ describe("Focus Session Transition & Time Accounting Rules", () => {
       status: "RUNNING" as const,
     };
 
-    const evalAbandoned = resolveFocusSessionProgress(session, tAbandoned);
-
-    assert.strictEqual(evalAbandoned.isAbandoned, true, "Harus ditandai isAbandoned");
-    assert.strictEqual(evalAbandoned.resolvedStatus, "STOPPED_EARLY", "Status harus STOPPED_EARLY");
-    assert.ok(evalAbandoned.elapsedSec <= MAX_SESSION_SEC, "Durasi tidak boleh melebihi batas 4 jam");
-    assert.strictEqual(evalAbandoned.elapsedSec, MAX_SESSION_SEC);
+    const evalReachedTarget = resolveFocusSessionProgress(sessionReachedTarget, tAbandoned);
+    assert.strictEqual(evalReachedTarget.isAbandoned, true);
+    assert.strictEqual(evalReachedTarget.focusSec, 1500);
+    assert.strictEqual(
+      evalReachedTarget.resolvedStatus,
+      "COMPLETED",
+      "Sesi yang sudah mencapai target 25m tidak boleh dipaksa STOPPED_EARLY"
+    );
   });
 
   test("Mode STOPWATCH: tidak dibatasi durasinya oleh plannedSec", () => {

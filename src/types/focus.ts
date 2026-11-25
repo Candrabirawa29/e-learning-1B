@@ -15,6 +15,7 @@ export interface ActiveFocusSessionDto {
   clientSessionId: string;
   mode: FocusMode;
   plannedSec: number;
+  initialPlannedSec?: number | null;
   startedAt: string;
   lastResumedAt: string | null;
   accumulatedSec: number;

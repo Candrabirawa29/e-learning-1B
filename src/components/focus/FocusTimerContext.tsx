@@ -35,6 +35,7 @@ import {
   getFocusClock,
   FocusClockPhase,
   formatSecToMMSS,
+  reconcileFocusSessionState,
 } from "@/lib/focus/session-logic";
 import { toast } from "sonner";
 
@@ -181,24 +182,28 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
 
   // State version tracking: Klien hanya menerima snapshot dengan version >= yang dimilikinya
   const sessionVersionRef = React.useRef<number>(0);
+  const mutationSeqRef = React.useRef<number>(0);
 
   const reconcileSession = React.useCallback(
-    (incoming: ActiveFocusSessionDto | null, incomingVersion?: number) => {
-      if (!incoming) {
-        sessionVersionRef.current = 0;
-        setActiveSession(null);
-        return;
-      }
-      const version = incomingVersion ?? incoming.version ?? 1;
-      if (version >= sessionVersionRef.current) {
-        sessionVersionRef.current = version;
-        setActiveSession({
-          ...incoming,
-          version,
-        });
+    (
+      incoming: ActiveFocusSessionDto | null,
+      incomingVersion?: number,
+      options?: { force?: boolean; mutationSeq?: number; backgroundStartSeq?: number }
+    ) => {
+      const outcome = reconcileFocusSessionState({
+        currentVersion: sessionVersionRef.current,
+        currentMutationSeq: mutationSeqRef.current,
+        incoming,
+        incomingVersion,
+        options,
+      });
+
+      if (outcome.accepted) {
+        sessionVersionRef.current = outcome.nextVersion;
+        setActiveSession(outcome.nextSession);
       } else {
         console.warn(
-          `[FocusTimer] Menolak snapshot basi (v${version} < v${sessionVersionRef.current})`
+          `[FocusTimer] Menolak snapshot basi (v${incomingVersion ?? incoming?.version} vs v${sessionVersionRef.current})`
         );
       }
     },
@@ -206,9 +211,10 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
   );
 
   const refreshActiveSession = React.useCallback(async () => {
+    const bgSeq = mutationSeqRef.current;
     try {
       const active = await getActiveFocusSessionAction();
-      reconcileSession(active);
+      reconcileSession(active, undefined, { backgroundStartSeq: bgSeq });
     } catch {
       // ignore
     }
@@ -873,7 +879,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
       try {
         const res = await updateActiveSessionContextAction(activeSession.id, data);
         if (res.success && res.session) {
-          setActiveSession(res.session);
+          reconcileSession(res.session, res.version, { force: true });
         }
       } catch (err: unknown) {
         toast.error(err instanceof Error ? err.message : "Gagal memperbarui konteks sesi");
@@ -944,6 +950,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
           : selectedTaskId ?? preferences?.lastTaskId ?? null;
 
       const clientSessionId = `fs_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      const seq = ++mutationSeqRef.current;
       const res = await startFocusSessionAction({
         clientSessionId,
         mode,
@@ -953,7 +960,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
       });
 
       if (res.success && res.session) {
-        reconcileSession(res.session, res.version);
+        reconcileSession(res.session, res.version, { mutationSeq: seq, force: true });
         setSummarySession(null);
         alarmTriggeredSessionIdRef.current = null;
         return true;
@@ -975,6 +982,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
   const pause = async () => {
     if (!activeSession || isActionPending) return;
     setIsActionPending(true);
+    const seq = ++mutationSeqRef.current;
     try {
       stopAlarm();
       if (soundEnabled) soundEffects.playClick();
@@ -998,7 +1006,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
 
       const res = await pauseFocusSessionAction(activeSession.id);
       if (res.success && res.session) {
-        reconcileSession(res.session, res.version);
+        reconcileSession(res.session, res.version, { mutationSeq: seq, force: true });
       }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Gagal menjeda sesi");
@@ -1012,6 +1020,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
   const resume = async () => {
     if (!activeSession || isActionPending) return;
     setIsActionPending(true);
+    const seq = ++mutationSeqRef.current;
     try {
       stopAlarm();
       if (soundEnabled) soundEffects.playClick();
@@ -1034,7 +1043,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
 
       const res = await resumeFocusSessionAction(activeSession.id);
       if (res.success && res.session) {
-        reconcileSession(res.session, res.version);
+        reconcileSession(res.session, res.version, { mutationSeq: seq, force: true });
       }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Gagal melanjutkan sesi");
@@ -1048,16 +1057,41 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
   const extendFocus = async () => {
     if (!activeSession || isActionPending) return;
     setIsActionPending(true);
+    const seq = ++mutationSeqRef.current;
     try {
       stopAlarm();
       if (soundEnabled) soundEffects.playClick();
+
+      // Optimistic update: langsung pindahkan UI dari "Target tercapai / 25:00 selesai"
+      // ke target baru (+300 detik), status RUNNING, waktu dihitung lagi dari sekarang
+      const optimisticTarget = activeSession.plannedSec + 300;
+      const optimisticAccumulated = activeSession.plannedSec;
+      const nowIso = new Date().toISOString();
+      const optimisticVersion = sessionVersionRef.current + 1;
+      sessionVersionRef.current = optimisticVersion;
+
+      setActiveSession((prev) =>
+        prev
+          ? {
+              ...prev,
+              plannedSec: optimisticTarget,
+              initialPlannedSec: prev.initialPlannedSec ?? prev.plannedSec,
+              accumulatedSec: optimisticAccumulated,
+              lastResumedAt: nowIso,
+              status: FocusSessionStatus.RUNNING,
+              version: optimisticVersion,
+            }
+          : null
+      );
+
       const res = await extendFocusSessionAction(activeSession.id);
       if (res.success && res.session) {
-        reconcileSession(res.session, res.version);
+        reconcileSession(res.session, res.version, { mutationSeq: seq, force: true });
         alarmTriggeredSessionIdRef.current = null;
       }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Gagal memperpanjang sesi");
+      await refreshActiveSession();
     } finally {
       setIsActionPending(false);
     }
