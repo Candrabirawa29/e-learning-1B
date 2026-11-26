@@ -10,9 +10,19 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  DropdownMenuSeparator,
-  DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,6 +46,10 @@ import {
   getFocusView,
   formatSecToMMSS,
 } from "@/lib/focus/session-logic";
+import {
+  filterFocusCourses,
+  filterFocusTasks,
+} from "@/lib/focus/context-search";
 import { createExtraCourseAction } from "@/actions/courses";
 import { toast } from "sonner";
 import {
@@ -268,8 +282,12 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
   const [isEnding, setIsEnding] = React.useState<boolean>(false);
   const [isDiscardDialogOpen, setIsDiscardDialogOpen] = React.useState<boolean>(false);
 
-  // Belajar Mandiri (EXTRA course) creation state & local list
+  // Belajar Mandiri (EXTRA course) creation state & searchable combobox state
   const [courseList, setCourseList] = React.useState<CourseOption[]>(courses);
+  const [courseOpen, setCourseOpen] = React.useState<boolean>(false);
+  const [courseQuery, setCourseQuery] = React.useState<string>("");
+  const [taskOpen, setTaskOpen] = React.useState<boolean>(false);
+  const [taskQuery, setTaskQuery] = React.useState<string>("");
   const [isAddTopicOpen, setIsAddTopicOpen] = React.useState<boolean>(false);
   const [newTopicName, setNewTopicName] = React.useState<string>("");
   const [isCreatingTopic, setIsCreatingTopic] = React.useState<boolean>(false);
@@ -288,13 +306,9 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
     };
   }, []);
 
-  const regularCourses = React.useMemo(
-    () => courseList.filter((c) => c.kind !== "EXTRA"),
-    [courseList]
-  );
-  const extraCourses = React.useMemo(
-    () => courseList.filter((c) => c.kind === "EXTRA"),
-    [courseList]
+  const filteredCourses = React.useMemo(
+    () => filterFocusCourses(courseList, courseQuery),
+    [courseList, courseQuery]
   );
 
   const handleContextChange = async (data: {
@@ -366,10 +380,11 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
   const selectedCourse = courseList.find((c) => c.id === selectedCourseId);
   const selectedTask = tasks.find((t) => t.id === selectedTaskId);
 
-  // Filter tasks if course selected
+  // Filter tasks if course selected, plus search filter
   const availableTasks = selectedCourseId
     ? tasks.filter((t) => !t.courseId || t.courseId === selectedCourseId)
     : tasks;
+  const filteredTasks = filterFocusTasks(availableTasks, taskQuery);
 
   const handleEndSession = async () => {
     setIsEnding(true);
@@ -470,9 +485,15 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
       {/* Interactive Context Chips Bar (Course, Task, Mode) */}
       <div className="w-full flex flex-col items-center gap-1.5 mb-5">
         <div className="flex flex-wrap items-center justify-center gap-2">
-          {/* Chip 1: Course */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
+          {/* Chip 1: Course & Belajar Mandiri (Searchable Combobox) */}
+          <Popover
+            open={courseOpen}
+            onOpenChange={(open) => {
+              setCourseOpen(open);
+              if (!open) setCourseQuery("");
+            }}
+          >
+            <PopoverTrigger
               render={
                 <Button
                   variant="outline"
@@ -487,62 +508,116 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
                 </Button>
               }
             />
-            <DropdownMenuContent align="center" className="w-60 max-h-72 overflow-y-auto">
-              <DropdownMenuItem
-                onClick={() => handleContextChange({ courseId: null })}
-                className="text-xs"
-              >
-                Tanpa Mata Kuliah
-              </DropdownMenuItem>
+            <PopoverContent align="center" className="w-72 p-0 gap-0 overflow-hidden">
+              <Command shouldFilter={false}>
+                <CommandInput
+                  autoFocus
+                  value={courseQuery}
+                  onValueChange={setCourseQuery}
+                  placeholder="Cari mata kuliah atau topik..."
+                  className="text-xs h-8"
+                />
+                <CommandList className="max-h-64">
+                  {!courseQuery.trim() && (
+                    <CommandGroup>
+                      <CommandItem
+                        value="__none__"
+                        data-checked={!selectedCourseId}
+                        onSelect={() => {
+                          handleContextChange({ courseId: null });
+                          setCourseOpen(false);
+                        }}
+                        className="text-xs cursor-pointer"
+                      >
+                        <span className="truncate">Tanpa Mata Kuliah</span>
+                      </CommandItem>
+                    </CommandGroup>
+                  )}
 
-              {regularCourses.length > 0 && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel className="text-[11px] font-semibold text-muted-foreground">
-                    Mata Kuliah
-                  </DropdownMenuLabel>
-                  {regularCourses.map((c) => (
-                    <DropdownMenuItem
-                      key={c.id}
-                      onClick={() => handleContextChange({ courseId: c.id })}
-                      className="text-xs"
-                    >
-                      <span className="truncate">{c.name}</span>
-                    </DropdownMenuItem>
-                  ))}
-                </>
-              )}
+                  {filteredCourses.regular.length > 0 && (
+                    <CommandGroup heading="Mata Kuliah">
+                      {filteredCourses.regular.map((c) => (
+                        <CommandItem
+                          key={c.id}
+                          value={c.id}
+                          data-checked={selectedCourseId === c.id}
+                          onSelect={() => {
+                            handleContextChange({ courseId: c.id });
+                            setCourseOpen(false);
+                          }}
+                          className="text-xs cursor-pointer"
+                        >
+                          <span className="truncate">{c.name}</span>
+                          {c.code && (
+                            <span className="ml-1.5 text-[10px] text-muted-foreground font-mono shrink-0">
+                              {c.code}
+                            </span>
+                          )}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  )}
 
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-[11px] font-semibold text-muted-foreground">
-                Belajar Mandiri
-              </DropdownMenuLabel>
-              {extraCourses.map((c) => (
-                <DropdownMenuItem
-                  key={c.id}
-                  onClick={() => handleContextChange({ courseId: c.id, taskId: null })}
-                  className="text-xs"
-                >
-                  <span className="truncate">{c.name}</span>
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuItem
-                onClick={() => {
-                  setNewTopicName("");
-                  setIsAddTopicOpen(true);
-                }}
-                className="text-xs text-primary font-medium focus:text-primary gap-1.5 cursor-pointer"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span>+ Tambah topik</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                  {filteredCourses.extra.length > 0 && (
+                    <CommandGroup heading="Belajar Mandiri">
+                      {filteredCourses.extra.map((c) => (
+                        <CommandItem
+                          key={c.id}
+                          value={c.id}
+                          data-checked={selectedCourseId === c.id}
+                          onSelect={() => {
+                            handleContextChange({ courseId: c.id, taskId: null });
+                            setCourseOpen(false);
+                          }}
+                          className="text-xs cursor-pointer"
+                        >
+                          <span className="truncate">{c.name}</span>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  )}
 
-          {/* Chip 2: Task (Disembunyikan jika topik EXTRA dipilih) */}
+                  {filteredCourses.totalMatches === 0 && (
+                    <div className="py-5 px-3 text-center text-xs text-muted-foreground">
+                      Topik &ldquo;{courseQuery.trim()}&rdquo; tidak ditemukan.
+                    </div>
+                  )}
+                </CommandList>
+
+                <div className="border-t p-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const prefill =
+                        filteredCourses.totalMatches === 0 ? courseQuery.trim() : "";
+                      setCourseOpen(false);
+                      setNewTopicName(prefill);
+                      setIsAddTopicOpen(true);
+                    }}
+                    className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs text-primary font-medium hover:bg-muted transition-colors cursor-pointer text-left"
+                  >
+                    <Plus className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">
+                      {filteredCourses.totalMatches === 0 && courseQuery.trim()
+                        ? `Tambah "${courseQuery.trim()}"`
+                        : "Tambah topik belajar mandiri"}
+                    </span>
+                  </button>
+                </div>
+              </Command>
+            </PopoverContent>
+          </Popover>
+
+          {/* Chip 2: Task (Searchable Combobox, disembunyikan jika topik EXTRA dipilih) */}
           {selectedCourse?.kind !== "EXTRA" && (
-            <DropdownMenu>
-              <DropdownMenuTrigger
+            <Popover
+              open={taskOpen}
+              onOpenChange={(open) => {
+                setTaskOpen(open);
+                if (!open) setTaskQuery("");
+              }}
+            >
+              <PopoverTrigger
                 render={
                   <Button
                     variant="outline"
@@ -557,28 +632,58 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
                   </Button>
                 }
               />
-              <DropdownMenuContent align="center" className="w-56 max-h-64 overflow-y-auto">
-                <DropdownMenuLabel className="text-[11px] text-muted-foreground">
-                  Pilih Tugas Terkait
-                </DropdownMenuLabel>
-                <DropdownMenuItem
-                  onClick={() => handleContextChange({ taskId: null })}
-                  className="text-xs"
-                >
-                  Tanpa Tugas
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                {availableTasks.map((t) => (
-                  <DropdownMenuItem
-                    key={t.id}
-                    onClick={() => handleContextChange({ taskId: t.id })}
-                    className="text-xs"
-                  >
-                    <span className="truncate">{t.title}</span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+              <PopoverContent align="center" className="w-72 p-0 gap-0 overflow-hidden">
+                <Command shouldFilter={false}>
+                  <CommandInput
+                    autoFocus
+                    value={taskQuery}
+                    onValueChange={setTaskQuery}
+                    placeholder="Cari tugas terkait..."
+                    className="text-xs h-8"
+                  />
+                  <CommandList className="max-h-60">
+                    {!taskQuery.trim() && (
+                      <CommandGroup>
+                        <CommandItem
+                          value="__none_task__"
+                          data-checked={!selectedTaskId}
+                          onSelect={() => {
+                            handleContextChange({ taskId: null });
+                            setTaskOpen(false);
+                          }}
+                          className="text-xs cursor-pointer"
+                        >
+                          <span className="truncate">Tanpa Tugas</span>
+                        </CommandItem>
+                      </CommandGroup>
+                    )}
+
+                    {filteredTasks.length > 0 ? (
+                      <CommandGroup heading="Pilih Tugas Terkait">
+                        {filteredTasks.map((t) => (
+                          <CommandItem
+                            key={t.id}
+                            value={t.id}
+                            data-checked={selectedTaskId === t.id}
+                            onSelect={() => {
+                              handleContextChange({ taskId: t.id });
+                              setTaskOpen(false);
+                            }}
+                            className="text-xs cursor-pointer"
+                          >
+                            <span className="truncate">{t.title}</span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    ) : (
+                      <div className="py-5 px-3 text-center text-xs text-muted-foreground">
+                        Tidak ada tugas yang cocok.
+                      </div>
+                    )}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           )}
 
           {/* Chip 3: Mode */}
