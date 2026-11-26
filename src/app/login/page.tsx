@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useSearchParams, useRouter } from "next/navigation";
 import { loginAction } from "@/actions/auth";
 import { createClient } from "@/lib/supabase/client";
@@ -67,9 +68,15 @@ function LoginForm() {
   return (
     <Card className="shadow-sm border">
       <CardHeader className="space-y-1 text-center pb-4">
-        <div className="mx-auto h-10 w-10 rounded bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 flex items-center justify-center font-bold text-sm tracking-tight mb-2">
-          1B
-        </div>
+        <Image
+          src="/icon-192.png"
+          alt="Logo Class 1-B"
+          width={56}
+          height={56}
+          unoptimized
+          priority
+          className="mx-auto h-14 w-14 rounded-full object-contain mb-2"
+        />
         <CardTitle className="text-lg font-bold tracking-tight">Masuk ke Kelas 1-B</CardTitle>
         <CardDescription className="text-xs">
           Gunakan email yang telah didaftarkan oleh Admin kelas.

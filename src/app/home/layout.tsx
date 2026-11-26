@@ -17,7 +17,7 @@ export default async function HomeLayout({
 
   return (
     <FocusTimerProvider>
-      <div className="min-h-screen flex flex-col bg-background">
+      <div className="min-h-screen flex flex-col bg-background overflow-x-clip">
         <Navbar session={session} />
         {session.isViewAs && session.viewAsRole && (
           <ViewAsBanner
@@ -35,7 +35,7 @@ export default async function HomeLayout({
         </div>
         <MiniFocusFloatingWidget />
         <PictureInPicturePortal />
-        <footer className="border-t py-3 text-center text-[11px] text-muted-foreground bg-muted/10">
+        <footer className="border-t pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] text-center text-[11px] text-muted-foreground bg-muted/10">
           Class 1-B • Academic Collaboration & E-Learning Platform
         </footer>
       </div>

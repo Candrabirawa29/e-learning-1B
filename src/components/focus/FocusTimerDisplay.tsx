@@ -839,8 +839,8 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
             disabled={isActionPending}
             className={`font-semibold rounded-full gap-2 cursor-pointer ${
               clockView.kind === "READY"
-                ? "px-8 py-6 text-sm shadow-md hover:shadow-lg"
-                : "px-6 py-5 text-xs"
+                ? "min-h-12 h-12 px-8 text-sm shadow-md hover:shadow-lg"
+                : "min-h-11 h-11 px-6 text-xs"
             }`}
           >
             {clockView.tombolUtama.action === "START" && <Play className="h-4 w-4 fill-current" />}
@@ -865,7 +865,7 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
                 else if (btn.action === "RESUME_BREAK") resumeBreak();
               }}
               disabled={isEnding || isActionPending}
-              className="px-5 py-5 text-xs font-semibold rounded-full gap-1.5 cursor-pointer"
+              className="min-h-11 h-11 px-5 text-xs font-semibold rounded-full gap-1.5 cursor-pointer"
             >
               {btn.action === "END" && <StopCircle className="h-4 w-4 text-rose-500" />}
               {btn.action === "EXTEND" && <PlusCircle className="h-4 w-4 text-primary" />}
@@ -880,7 +880,7 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
-                  <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full cursor-pointer">
+                  <Button variant="ghost" size="icon" className="min-h-11 min-w-11 h-11 w-11 rounded-full cursor-pointer">
                     <MoreVertical className="h-4 w-4 text-muted-foreground" />
                   </Button>
                 }
@@ -909,7 +909,7 @@ export function FocusTimerDisplay({ courses, tasks }: FocusTimerDisplayProps) {
             type="button"
             onClick={handleEndSession}
             disabled={isEnding || isActionPending}
-            className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-4 cursor-pointer mt-1"
+            className="min-h-11 px-3 inline-flex items-center justify-center text-xs text-muted-foreground hover:text-foreground underline underline-offset-4 cursor-pointer mt-1"
           >
             {clockView.teksKecil}
           </button>

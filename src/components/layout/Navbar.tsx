@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { logoutAction, setViewAsAction } from "@/actions/auth";
 import { CurrentUserSession, EffectiveRole } from "@/lib/auth/session";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -42,7 +43,7 @@ export function Navbar({ session }: NavbarProps) {
   }[session.effectiveRole];
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 pt-[env(safe-area-inset-top)]">
       <div className="flex h-14 items-center justify-between px-4 sm:px-6 max-w-7xl mx-auto">
         <div className="flex items-center gap-3">
           <Sheet>
@@ -54,12 +55,17 @@ export function Navbar({ session }: NavbarProps) {
                 </Button>
               }
             />
-            <SheetContent side="left" className="p-0 w-72">
+            <SheetContent side="left" className="p-0 w-72 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
               <div className="p-4 border-b">
                 <div className="flex items-center gap-2 font-semibold">
-                  <div className="h-8 w-8 rounded bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900 flex items-center justify-center font-bold text-sm">
-                    1B
-                  </div>
+                  <Image
+                    src="/icon-192.png"
+                    alt="Logo Class 1-B"
+                    width={36}
+                    height={36}
+                    unoptimized
+                    className="h-9 w-9 rounded-full object-contain shrink-0"
+                  />
                   <div>
                     <div className="text-sm font-semibold">Kelas 1-B</div>
                     <div className="text-xs text-muted-foreground">Portal Akademik Terpadu</div>
@@ -72,10 +78,15 @@ export function Navbar({ session }: NavbarProps) {
             </SheetContent>
           </Sheet>
 
-          <Link href={session.user ? "/home" : "/"} className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 flex items-center justify-center font-bold text-xs tracking-tight">
-              1B
-            </div>
+          <Link href={session.user ? "/home" : "/"} className="group flex items-center gap-2.5">
+            <Image
+              src="/icon-192.png"
+              alt="Logo Class 1-B"
+              width={40}
+              height={40}
+              unoptimized
+              className="h-10 w-10 rounded-full object-contain shrink-0 transition-transform duration-150 group-hover:scale-105"
+            />
             <div className="hidden sm:block">
               <span className="font-semibold text-sm tracking-tight">Class 1-B</span>
               <span className="text-xs text-muted-foreground ml-2 hidden md:inline border-l pl-2">

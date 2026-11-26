@@ -403,7 +403,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
           try {
             new Notification(title, {
               body,
-              icon: "/favicon.ico",
+              icon: "/icon-192.png",
               requireInteraction: true,
             });
           } catch {

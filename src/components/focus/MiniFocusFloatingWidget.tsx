@@ -88,7 +88,7 @@ export function MiniFocusFloatingWidget() {
   return (
     <aside
       aria-label="Widget Timer Fokus"
-      className="fixed bottom-4 right-4 z-50 animate-in fade-in slide-in-from-bottom-3 duration-300"
+      className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] right-[calc(1rem+env(safe-area-inset-right))] max-w-[calc(100vw-2rem-env(safe-area-inset-left)-env(safe-area-inset-right))] z-50 animate-in fade-in slide-in-from-bottom-3 duration-300"
     >
       <div className="flex items-center gap-2.5 backdrop-blur-md border shadow-lg px-3.5 py-2 rounded-full text-xs transition-colors duration-300 bg-background/95 text-foreground border-border">
         <Link
