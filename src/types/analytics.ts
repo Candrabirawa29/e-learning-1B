@@ -1,6 +1,22 @@
 import { StreakResult, ConsistencyScoreResult, TrendAnalysisResult } from "@/lib/analytics/study-metrics";
 import { CourseBreakdownRow, TaskBreakdownRow, HourDayMatrixRow } from "@/lib/analytics/study-queries";
 import { StudyPreferenceDto } from "@/types/focus";
+import type { AiPersonaModeType } from "@/lib/analytics/ai-persona";
+
+export interface AiChatMessageDto {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  mode: AiPersonaModeType;
+  createdAt: string;
+}
+
+export interface AiQuotaStatusDto {
+  used: number;
+  remaining: number | null;
+  limit: number | null;
+  isUnlimited: boolean;
+}
 
 export interface AnalyticsKpis {
   todayMinutes: number;
@@ -48,4 +64,9 @@ export interface StudyAnalyticsDashboardData {
   };
   preferences: StudyPreferenceDto;
   suggestedWeeklyTargetMin: number | null;
+  aiQuota: AiQuotaStatusDto;
+  aiChatHistory: {
+    coach: AiChatMessageDto[];
+    partner: AiChatMessageDto[];
+  };
 }

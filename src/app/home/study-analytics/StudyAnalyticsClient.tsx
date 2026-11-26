@@ -319,8 +319,9 @@ export function StudyAnalyticsClient({ initialData }: StudyAnalyticsClientProps)
         <div className="space-y-4">
           <StudyCoachChat
             preferences={data.preferences}
+            initialHistory={data.aiChatHistory}
+            initialQuota={data.aiQuota}
             onPreferencesUpdated={handlePreferencesUpdated}
-            openPreferenceDialog={() => setIsPreferenceOpen(true)}
           />
         </div>
       )}

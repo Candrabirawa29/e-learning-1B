@@ -104,6 +104,11 @@ enum CourseVisibility {
   PRIVATE
 }
 
+enum AiPersonaMode {
+  COACH
+  PARTNER
+}
+
 model Profile {
   id                 String            @id // Matches Supabase auth.users.id
   email              String            @unique
@@ -128,6 +133,7 @@ model Profile {
   focusSessions        FocusSession[]    @relation("UserFocusSessions")
   studyPreference      StudyPreference?  @relation("UserStudyPreference")
   aiUsages             AiUsage[]         @relation("UserAiUsage")
+  aiChatMessages       AiChatMessage[]   @relation("UserAiChatMessages")
   glossaryTerms        GlossaryTerm[]    @relation("UserGlossaryTerms")
 
   @@map("profiles")
@@ -439,6 +445,8 @@ model StudyPreference {
   lastMode           FocusMode?
   autoStartBreak     Boolean        @default(true)
   autoStartNextFocus Boolean        @default(false)
+  aiMode             AiPersonaMode  @default(COACH)
+  aiPartnerConfig    Json?
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 
@@ -460,6 +468,20 @@ model AiUsage {
   @@unique([userId, date])
   @@index([userId])
   @@map("ai_usages")
+}
+
+model AiChatMessage {
+  id        String        @id @default(uuid())
+  userId    String
+  role      String
+  content   String        @db.Text
+  mode      AiPersonaMode @default(COACH)
+  createdAt DateTime      @default(now())
+
+  user Profile @relation("UserAiChatMessages", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, mode, createdAt])
+  @@map("ai_chat_messages")
 }
 
 model GlossaryTerm {

@@ -2,7 +2,12 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireUser, assertCanMutate } from "@/lib/auth/session";
-import { FocusMode, FocusSessionStatus, Prisma, StudyPreference } from "@prisma/client";
+import { FocusMode, FocusSessionStatus, Prisma, StudyPreference, AiPersonaMode } from "@prisma/client";
+import {
+  AiPartnerConfigSchema,
+  DEFAULT_AI_PARTNER_CONFIG,
+  normalizePartnerConfig,
+} from "@/lib/analytics/ai-persona";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
@@ -869,7 +874,14 @@ export async function deleteFocusSessionAction(sessionId: string) {
  * Helper untuk mengambil preferensi belajar atau inisialisasi default jika belum ada.
  */
 export async function getOrCreateStudyPreference(userId: string): Promise<StudyPreferenceDto> {
-  let pref: (StudyPreference & { showTargetRemaining?: boolean; activeDaysTarget?: number }) | null = null;
+  let pref:
+    | (StudyPreference & {
+        showTargetRemaining?: boolean;
+        activeDaysTarget?: number;
+        aiMode?: AiPersonaMode;
+        aiPartnerConfig?: Prisma.JsonValue | null;
+      })
+    | null = null;
   try {
     pref = await prisma.studyPreference.findUnique({
       where: { userId },
@@ -904,6 +916,8 @@ export async function getOrCreateStudyPreference(userId: string): Promise<StudyP
           soundVolume: 80,
           autoStartBreak: true,
           autoStartNextFocus: false,
+          aiMode: AiPersonaMode.COACH,
+          aiPartnerConfig: DEFAULT_AI_PARTNER_CONFIG as unknown as Prisma.InputJsonValue,
         },
       });
     } catch {
@@ -948,6 +962,8 @@ export async function getOrCreateStudyPreference(userId: string): Promise<StudyP
     lastMode: pref.lastMode,
     autoStartBreak: pref.autoStartBreak ?? true,
     autoStartNextFocus: pref.autoStartNextFocus ?? false,
+    aiMode: pref.aiMode === AiPersonaMode.PARTNER ? "PARTNER" : "COACH",
+    aiPartnerConfig: normalizePartnerConfig(pref.aiPartnerConfig),
   };
 }
 
@@ -978,6 +994,8 @@ const UpdatePreferenceSchema = z.object({
   lastMode: z.nativeEnum(FocusMode).nullable().optional(),
   autoStartBreak: z.boolean().optional(),
   autoStartNextFocus: z.boolean().optional(),
+  aiMode: z.enum(["COACH", "PARTNER"]).optional(),
+  aiPartnerConfig: AiPartnerConfigSchema.optional(),
 });
 
 /**
@@ -990,7 +1008,38 @@ export async function updateStudyPreferencesAction(rawInput: z.infer<typeof Upda
 
   const data = UpdatePreferenceSchema.parse(rawInput);
 
-  let updated: (StudyPreference & { showTargetRemaining?: boolean; activeDaysTarget?: number });
+  const updatePayload: Prisma.StudyPreferenceUpdateInput = {
+    ...(data.focusDuration !== undefined ? { focusDuration: data.focusDuration } : {}),
+    ...(data.shortBreakDuration !== undefined ? { shortBreakDuration: data.shortBreakDuration } : {}),
+    ...(data.longBreakDuration !== undefined ? { longBreakDuration: data.longBreakDuration } : {}),
+    ...(data.longBreakInterval !== undefined ? { longBreakInterval: data.longBreakInterval } : {}),
+    ...(data.weeklyTargetMin !== undefined ? { weeklyTargetMin: data.weeklyTargetMin } : {}),
+    ...(data.minActiveDayMin !== undefined ? { minActiveDayMin: data.minActiveDayMin } : {}),
+    ...(data.showTargetRemaining !== undefined ? { showTargetRemaining: data.showTargetRemaining } : {}),
+    ...(data.activeDaysTarget !== undefined ? { activeDaysTarget: data.activeDaysTarget } : {}),
+    ...(data.aiConsent !== undefined ? { aiConsent: data.aiConsent } : {}),
+    ...(data.floatMode !== undefined ? { floatMode: data.floatMode } : {}),
+    ...(data.alertIntensity !== undefined ? { alertIntensity: data.alertIntensity } : {}),
+    ...(data.soundVolume !== undefined ? { soundVolume: data.soundVolume } : {}),
+    ...(data.lastCourseId !== undefined ? { lastCourseId: data.lastCourseId } : {}),
+    ...(data.lastTaskId !== undefined ? { lastTaskId: data.lastTaskId } : {}),
+    ...(data.lastMode !== undefined ? { lastMode: data.lastMode } : {}),
+    ...(data.autoStartBreak !== undefined ? { autoStartBreak: data.autoStartBreak } : {}),
+    ...(data.autoStartNextFocus !== undefined ? { autoStartNextFocus: data.autoStartNextFocus } : {}),
+    ...(data.aiMode !== undefined
+      ? { aiMode: data.aiMode === "PARTNER" ? AiPersonaMode.PARTNER : AiPersonaMode.COACH }
+      : {}),
+    ...(data.aiPartnerConfig !== undefined
+      ? { aiPartnerConfig: data.aiPartnerConfig as unknown as Prisma.InputJsonValue }
+      : {}),
+  };
+
+  let updated: StudyPreference & {
+    showTargetRemaining?: boolean;
+    activeDaysTarget?: number;
+    aiMode?: AiPersonaMode;
+    aiPartnerConfig?: Prisma.JsonValue | null;
+  };
   try {
     updated = await prisma.studyPreference.upsert({
       where: { userId },
@@ -1013,16 +1062,20 @@ export async function updateStudyPreferencesAction(rawInput: z.infer<typeof Upda
         lastMode: data.lastMode ?? null,
         autoStartBreak: data.autoStartBreak ?? true,
         autoStartNextFocus: data.autoStartNextFocus ?? false,
+        aiMode: data.aiMode === "PARTNER" ? AiPersonaMode.PARTNER : AiPersonaMode.COACH,
+        aiPartnerConfig: (data.aiPartnerConfig ?? DEFAULT_AI_PARTNER_CONFIG) as unknown as Prisma.InputJsonValue,
       },
-      update: data,
+      update: updatePayload,
     });
   } catch (err: unknown) {
     const errorObj = err as { code?: string; message?: string };
     if (errorObj?.code === "P2021" || errorObj?.code === "P2022" || errorObj?.message?.includes("column")) {
       // Fallback update tanpa kolom yang belum dimigrate
-      const fallbackData = { ...data };
+      const fallbackData = { ...updatePayload } as Record<string, unknown>;
       delete fallbackData.showTargetRemaining;
       delete fallbackData.activeDaysTarget;
+      delete fallbackData.aiMode;
+      delete fallbackData.aiPartnerConfig;
 
       updated = await prisma.studyPreference.upsert({
         where: { userId },
@@ -1078,6 +1131,8 @@ export async function updateStudyPreferencesAction(rawInput: z.infer<typeof Upda
       lastMode: updated.lastMode,
       autoStartBreak: updated.autoStartBreak,
       autoStartNextFocus: updated.autoStartNextFocus,
+      aiMode: updated.aiMode === AiPersonaMode.PARTNER ? ("PARTNER" as const) : ("COACH" as const),
+      aiPartnerConfig: normalizePartnerConfig(updated.aiPartnerConfig ?? data.aiPartnerConfig),
     },
   };
 }

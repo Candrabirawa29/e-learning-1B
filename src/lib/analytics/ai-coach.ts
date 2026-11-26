@@ -11,18 +11,28 @@ import {
   calculateWeeklyConsistencyScore,
   calculateStudyTrend,
 } from "@/lib/analytics/study-metrics";
+import { AiPersonaModeType } from "@/lib/analytics/ai-persona";
+import { AiChatMessageDto, AiQuotaStatusDto } from "@/types/analytics";
+import { AiPersonaMode } from "@prisma/client";
 import { z } from "zod";
 
 export const DAILY_AI_MESSAGE_LIMIT = 20;
 
 /**
  * Memeriksa dan memperbarui kuota harian pesan AI untuk user.
+ * Admin (isUnlimited = true) tidak dibatasi kuota harian, namun tetap dicatat pemakaiannya untuk statistik platform.
  */
-export async function checkAndConsumeAiQuota(userId: string): Promise<{
+export async function checkAndConsumeAiQuota(
+  userId: string,
+  options?: { isUnlimited?: boolean }
+): Promise<{
   allowed: boolean;
-  remaining: number;
+  remaining: number | null;
+  limit: number | null;
   used: number;
+  isUnlimited: boolean;
 }> {
+  const isUnlimited = Boolean(options?.isUnlimited);
   const todayKey = wibDayKey(new Date());
 
   const usage = await prisma.aiUsage.findUnique({
@@ -35,15 +45,17 @@ export async function checkAndConsumeAiQuota(userId: string): Promise<{
   });
 
   const used = usage?.count || 0;
-  if (used >= DAILY_AI_MESSAGE_LIMIT) {
+  if (!isUnlimited && used >= DAILY_AI_MESSAGE_LIMIT) {
     return {
       allowed: false,
       remaining: 0,
+      limit: DAILY_AI_MESSAGE_LIMIT,
       used,
+      isUnlimited: false,
     };
   }
 
-  // Increment penggunaan
+  // Increment penggunaan harian
   const updated = await prisma.aiUsage.upsert({
     where: {
       userId_date: {
@@ -63,21 +75,32 @@ export async function checkAndConsumeAiQuota(userId: string): Promise<{
     },
   });
 
+  if (isUnlimited) {
+    return {
+      allowed: true,
+      remaining: null,
+      limit: null,
+      used: updated.count,
+      isUnlimited: true,
+    };
+  }
+
   return {
     allowed: true,
     remaining: Math.max(0, DAILY_AI_MESSAGE_LIMIT - updated.count),
+    limit: DAILY_AI_MESSAGE_LIMIT,
     used: updated.count,
+    isUnlimited: false,
   };
 }
 
 /**
  * Mengambil kuota hari ini tanpa menambah hitungan.
  */
-export async function getAiQuotaStatus(userId: string): Promise<{
-  remaining: number;
-  used: number;
-  limit: number;
-}> {
+export async function getAiQuotaStatus(
+  userId: string,
+  isUnlimited: boolean = false
+): Promise<AiQuotaStatusDto> {
   const todayKey = wibDayKey(new Date());
   const usage = await prisma.aiUsage.findUnique({
     where: {
@@ -89,11 +112,107 @@ export async function getAiQuotaStatus(userId: string): Promise<{
   });
 
   const used = usage?.count || 0;
+  if (isUnlimited) {
+    return {
+      remaining: null,
+      used,
+      limit: null,
+      isUnlimited: true,
+    };
+  }
+
   return {
     remaining: Math.max(0, DAILY_AI_MESSAGE_LIMIT - used),
     used,
     limit: DAILY_AI_MESSAGE_LIMIT,
+    isUnlimited: false,
   };
+}
+
+const MAX_PERSISTED_CHAT_MESSAGES = 60;
+
+/**
+ * Mengambil riwayat chat AI tersimpan di database untuk satu user & mode tertentu.
+ */
+export async function getAiChatHistory(
+  userId: string,
+  mode: AiPersonaModeType
+): Promise<AiChatMessageDto[]> {
+  try {
+    const prismaMode = mode === "PARTNER" ? AiPersonaMode.PARTNER : AiPersonaMode.COACH;
+    const rows = await prisma.aiChatMessage.findMany({
+      where: {
+        userId,
+        mode: prismaMode,
+      },
+      orderBy: { createdAt: "desc" },
+      take: MAX_PERSISTED_CHAT_MESSAGES,
+    });
+
+    return rows.reverse().map((r) => ({
+      id: r.id,
+      role: r.role === "assistant" ? "assistant" : "user",
+      content: r.content,
+      mode: r.mode === AiPersonaMode.PARTNER ? "PARTNER" : "COACH",
+      createdAt: r.createdAt.toISOString(),
+    }));
+  } catch (err: unknown) {
+    const e = err as { code?: string };
+    if (e?.code === "P2021" || e?.code === "P2022") {
+      return [];
+    }
+    throw err;
+  }
+}
+
+/**
+ * Menyimpan pesan chat AI (user / assistant) ke database.
+ */
+export async function saveAiChatMessage(params: {
+  userId: string;
+  role: "user" | "assistant";
+  content: string;
+  mode: AiPersonaModeType;
+}): Promise<void> {
+  const clean = params.content.trim();
+  if (!clean) return;
+  try {
+    await prisma.aiChatMessage.create({
+      data: {
+        userId: params.userId,
+        role: params.role,
+        content: clean,
+        mode: params.mode === "PARTNER" ? AiPersonaMode.PARTNER : AiPersonaMode.COACH,
+      },
+    });
+  } catch (err: unknown) {
+    const e = err as { code?: string };
+    if (e?.code !== "P2021" && e?.code !== "P2022") {
+      console.error("[saveAiChatMessage]", err);
+    }
+  }
+}
+
+/**
+ * Menghapus riwayat chat AI milik user untuk mode tertentu.
+ */
+export async function clearAiChatHistory(
+  userId: string,
+  mode: AiPersonaModeType
+): Promise<void> {
+  try {
+    await prisma.aiChatMessage.deleteMany({
+      where: {
+        userId,
+        mode: mode === "PARTNER" ? AiPersonaMode.PARTNER : AiPersonaMode.COACH,
+      },
+    });
+  } catch (err: unknown) {
+    const e = err as { code?: string };
+    if (e?.code !== "P2021" && e?.code !== "P2022") {
+      throw err;
+    }
+  }
 }
 
 /**

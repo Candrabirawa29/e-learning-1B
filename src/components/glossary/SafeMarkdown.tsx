@@ -2,6 +2,9 @@
 
 import React from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { cn } from "@/lib/utils";
 
 interface SafeMarkdownProps {
@@ -9,12 +12,39 @@ interface SafeMarkdownProps {
   className?: string;
 }
 
+/**
+ * Menormalkan delimiter LaTeX `\[...\]` dan `\(...\)` menjadi `$$...$$` dan `$...$`
+ * agar kompatibel dengan `remark-math`, tanpa menyentuh blok kode Markdown.
+ */
+export function normalizeLatexDelimiters(markdown: string): string {
+  if (!markdown) return "";
+  const segments = markdown.split(/(```[\s\S]*?```|`[^`\n]+`)/g);
+  return segments
+    .map((segment, index) => {
+      // Segmen ganjil adalah code block / inline code -> biarkan apa adanya
+      if (index % 2 === 1) return segment;
+      return segment
+        .replace(/\\\[([\s\S]*?)\\\]/g, (_match, expr: string) => `\n$$\n${expr.trim()}\n$$\n`)
+        .replace(/\\\((.+?)\\\)/g, (_match, expr: string) => `$${expr.trim()}$`);
+    })
+    .join("");
+}
+
 export function SafeMarkdown({ content, className }: SafeMarkdownProps) {
   if (!content) return null;
 
+  const normalizedContent = normalizeLatexDelimiters(content);
+
   return (
-    <div className={cn("text-sm text-foreground/90 space-y-2 break-words", className)}>
+    <div
+      className={cn(
+        "text-sm text-foreground/90 space-y-2 break-words [&_.katex-display]:overflow-x-auto [&_.katex-display]:py-1 [&_.katex-display]:max-w-full [&_.katex]:text-[1em]",
+        className
+      )}
+    >
       <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: "ignore" }]]}
         components={{
           // Tautan wajib target _blank & rel="noopener noreferrer"
           a: ({ href, children, ...props }) => (
@@ -29,17 +59,17 @@ export function SafeMarkdown({ content, className }: SafeMarkdownProps) {
             </a>
           ),
           h1: ({ children, ...props }) => (
-            <h1 className="text-lg font-bold text-foreground mt-3 mb-1.5" {...props}>
+            <h1 className="text-base font-bold text-foreground mt-3 mb-1.5" {...props}>
               {children}
             </h1>
           ),
           h2: ({ children, ...props }) => (
-            <h2 className="text-base font-semibold text-foreground mt-2.5 mb-1" {...props}>
+            <h2 className="text-sm font-bold text-foreground mt-2.5 mb-1" {...props}>
               {children}
             </h2>
           ),
           h3: ({ children, ...props }) => (
-            <h3 className="text-sm font-semibold text-foreground mt-2 mb-1" {...props}>
+            <h3 className="text-[13px] font-semibold text-foreground mt-2 mb-1" {...props}>
               {children}
             </h3>
           ),
@@ -76,7 +106,7 @@ export function SafeMarkdown({ content, className }: SafeMarkdownProps) {
             if (isInline) {
               return (
                 <code
-                  className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground font-semibold"
+                  className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground font-semibold"
                   {...props}
                 >
                   {children}
@@ -109,7 +139,7 @@ export function SafeMarkdown({ content, className }: SafeMarkdownProps) {
           ),
         }}
       >
-        {content}
+        {normalizedContent}
       </ReactMarkdown>
     </div>
   );

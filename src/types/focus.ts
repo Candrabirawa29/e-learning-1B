@@ -1,4 +1,5 @@
 import { FocusMode, FocusSessionStatus, FloatMode, AlertIntensity } from "@prisma/client";
+import type { AiPartnerConfig, AiPersonaModeType } from "@/lib/analytics/ai-persona";
 
 export { FloatMode, AlertIntensity };
 
@@ -50,5 +51,7 @@ export interface StudyPreferenceDto {
   lastMode?: FocusMode | null;
   autoStartBreak: boolean;
   autoStartNextFocus: boolean;
+  aiMode: AiPersonaModeType;
+  aiPartnerConfig: AiPartnerConfig;
 }
 

@@ -25,6 +25,8 @@ import {
   calculateMedianWeeklyMinutes,
 } from "@/lib/analytics/study-metrics";
 import { getOrCreateStudyPreference } from "@/actions/focus";
+import { getAiQuotaStatus, getAiChatHistory } from "@/lib/analytics/ai-coach";
+import { hasUnlimitedAiQuota } from "@/lib/analytics/ai-persona";
 import { StudyAnalyticsDashboardData, TrendChartPoint } from "@/types/analytics";
 
 export async function getStudyAnalyticsDashboard(
@@ -77,6 +79,9 @@ export async function getStudyAnalyticsDashboard(
     firstSessionDate,
     thisWeekCompletion,
     lastWeekCompletion,
+    aiQuota,
+    coachChatHistory,
+    partnerChatHistory,
   ] = await Promise.all([
     getDailyStudyAggregation(userId, currentStartKey, currentEndKey),
     getDailyStudyAggregation(userId, prevStartKey, prevEndKey),
@@ -88,6 +93,9 @@ export async function getStudyAnalyticsDashboard(
     getFirstSessionDate(userId),
     getSessionCompletionRatio(userId, thisWeekMondayKey, todayKey),
     getSessionCompletionRatio(userId, lastWeekMondayKey, lastWeekSundayKey),
+    getAiQuotaStatus(userId, hasUnlimitedAiQuota(session)),
+    getAiChatHistory(userId, "COACH"),
+    getAiChatHistory(userId, "PARTNER"),
   ]);
 
   // 3. Query data Heatmap (53 minggu ke belakang dari hari ini untuk streak & GitHub heatmap)
@@ -296,5 +304,10 @@ export async function getStudyAnalyticsDashboard(
     taskData,
     preferences,
     suggestedWeeklyTargetMin,
+    aiQuota,
+    aiChatHistory: {
+      coach: coachChatHistory,
+      partner: partnerChatHistory,
+    },
   };
 }
