@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Class 1-B",
-    short_name: "1-B",
+    name: "E-Learning 1-B",
+    short_name: "E-Learning 1-B",
     description:
       "Platform akademik terpadu manajemen tugas, e-learning, dan ruang fokus kelas 1-B.",
     start_url: "/home",

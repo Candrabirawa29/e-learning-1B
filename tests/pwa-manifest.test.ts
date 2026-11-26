@@ -8,8 +8,8 @@ import { config as middlewareConfig } from "../src/middleware";
 describe("PWA Manifest, Icons & Public Access Verification", () => {
   test("1. Manifest memiliki seluruh field wajib dengan nilai yang sesuai", () => {
     const m = manifest();
-    assert.strictEqual(m.name, "Class 1-B");
-    assert.strictEqual(m.short_name, "1-B");
+    assert.strictEqual(m.name, "E-Learning 1-B");
+    assert.strictEqual(m.short_name, "E-Learning 1-B");
     assert.ok(m.description && m.description.length > 10, "description wajib diisi");
     assert.strictEqual(m.start_url, "/home");
     assert.strictEqual(m.scope, "/");

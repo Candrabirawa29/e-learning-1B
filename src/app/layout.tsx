@@ -27,10 +27,10 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   title: "Class 1-B — Task Management & E-Learning",
   description: "Platform akademik terpadu manajemen tugas, e-learning, dan penugasan kelas 1-B.",
-  applicationName: "Class 1-B",
+  applicationName: "E-Learning 1-B",
   appleWebApp: {
     capable: true,
-    title: "Class 1-B",
+    title: "E-Learning 1-B",
     statusBarStyle: "default",
   },
   icons: {
